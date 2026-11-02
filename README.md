@@ -32,11 +32,7 @@ Si tu publies sous un autre nom de dépôt, ajoute son chemin dans `allowedSites
 
 ## ⚠️ À faire avant de vendre / distribuer
 
-- **Change le mot de passe admin** (défaut : `changeme123`). Le hash est dans `webadb/src/config.js` :
-  ```js
-  crypto.subtle.digest("SHA-256", new TextEncoder().encode("TON_MOT_DE_PASSE"))
-    .then(b => console.log([...new Uint8Array(b)].map(x => x.toString(16).padStart(2,"0")).join("")))
-  ```
+- **Accès administrateur** : les informations d’accès sont confidentielles et doivent être transmises séparément aux seules personnes autorisées. Remplacez tout identifiant ou secret précédemment publié avant la mise en service.
 - **Ce verrou n'est pas une vraie sécurité** : il tourne dans le navigateur et le hash est lisible dans le code du site. Il empêche un usage accidentel, pas un attaquant. Pour une offre professionnelle, il faudra une authentification côté serveur (comptes, sessions, isolation par revendeur).
 - Le blocage par catégories est appliqué par l'app Android (Device Owner), pas par le site : le site ne fait qu'envoyer `yidream_config.json`.
 - Compatibilité non garantie sur tous les téléphones (Device Owner, WebUSB, constructeur). À documenter au fur et à mesure des tests.
