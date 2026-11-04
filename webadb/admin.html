@@ -133,6 +133,53 @@
     .app-dock-item.coming{opacity:.7;cursor:not-allowed}
     @media(max-width:520px){.content{padding-bottom:96px}.apps-dock{bottom:8px;gap:2px;padding:5px 6px 4px}.app-dock-item{width:62px;min-height:58px}.app-dock-icon{width:36px;height:36px;font-size:24px}.app-dock-item small{font-size:9px}}
   </style>
+  <style id="owner-workspace-polish">
+    .side{background:linear-gradient(180deg,#fff 0%,#fcfbff 100%)}
+    .brand img{filter:drop-shadow(0 3px 7px #10244818)}
+    .workspace,.platform-heading{letter-spacing:.12em}
+    .nav button{min-height:41px;transition:background .16s ease,color .16s ease,transform .16s ease}
+    .nav button:hover{transform:translateX(2px)}.nav button.active{box-shadow:inset 3px 0 0 var(--accent)}
+    .content.owner-content{max-width:1440px;padding:25px 32px 40px}
+    .owner-content-home{padding-top:0!important}
+    .classic-mdm-frame{display:block;width:100%;min-height:220px;border:0;border-radius:0;background:transparent}
+    .classic-mdm-management{margin-top:24px;padding-top:25px;border-top:1px solid #dfe5f0}
+    .classic-mdm-management>.heading{align-items:center;margin-bottom:17px}
+    .classic-mdm-management>.heading h1{font-size:23px;letter-spacing:-.035em}
+    .classic-mdm-management>.heading p{font-size:12px}
+    .classic-mdm-management .stats{gap:12px;margin-bottom:15px}
+    .classic-mdm-management .stat{min-height:122px;padding:16px 18px;border-radius:15px;box-shadow:0 8px 22px #1c3c7009;transition:transform .16s ease,box-shadow .16s ease}
+    .classic-mdm-management .stat:hover{transform:translateY(-2px);box-shadow:0 12px 26px #1c3c7012}
+    .classic-mdm-management .stat label{font-size:11px}
+    .classic-mdm-management .stat strong{font-size:27px;margin:10px 0 2px}
+    .classic-mdm-management .panel{padding:19px;border-radius:16px}
+    .owner-content:not(.owner-content-home)>.heading{padding:19px 22px;margin-bottom:20px;border:1px solid #e4e7f2;border-radius:16px;background:linear-gradient(105deg,#fff,#fbfaff 78%,#f4f0ff);box-shadow:0 8px 25px #1c3c7008}
+    .owner-content:not(.owner-content-home)>.heading h1{font-size:28px}
+    .owner-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:15px}
+    .owner-stats .stat{position:relative;min-height:134px;padding:16px 15px 14px 54px;border-radius:15px;box-shadow:0 8px 22px #1c3c7009;transition:transform .16s ease,box-shadow .16s ease}
+    .owner-stats .stat:hover{transform:translateY(-2px);box-shadow:0 12px 26px #1c3c7012}
+    .owner-stats .stat label{display:block;font-size:10px;line-height:1.35}
+    .owner-stats .stat strong{font-size:27px;margin-top:9px}
+    .owner-stats .stat small{font-size:10px}
+    .owner-stat-icon{position:absolute;left:14px;top:15px;width:28px;height:28px;display:grid;place-items:center;border-radius:9px;background:#f0ebfc;color:#7257d6;font-size:14px;font-weight:800}
+    .owner-stat-icon.blue{background:#eaf2ff;color:#3972c9}.owner-stat-icon.amber{background:#fff5e2;color:#a8751b}.owner-stat-icon.green{background:#e8f6ef;color:#2c8052}
+    .owner-dashboard-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.8fr);gap:14px;align-items:stretch}
+    .owner-dashboard-grid>.panel{padding:19px;border-radius:16px;box-shadow:0 8px 24px #1c3c7009}
+    .owner-dashboard-grid .panel-head{align-items:flex-end}
+    .owner-dashboard-grid .panel-head h2,.owner-tools h2{margin:4px 0 0;font-size:16px;letter-spacing:-.02em}
+    .owner-kicker{color:var(--muted);font-size:9px;font-weight:850;letter-spacing:.13em}
+    .owner-recent .activity-row{padding:13px 2px}
+    .owner-quick-link{width:100%;display:flex;align-items:center;gap:10px;padding:11px 1px;border:0;border-top:1px solid var(--line);background:transparent;text-align:left;color:var(--ink);font:inherit;cursor:pointer}
+    .owner-quick-link:first-of-type{margin-top:9px}
+    .owner-quick-link>span:nth-child(2){display:grid;gap:3px;flex:1}
+    .owner-quick-link b{font-size:11px}.owner-quick-link small{font-size:10px;color:var(--muted);line-height:1.35}
+    .owner-quick-link:hover b,.owner-quick-link:hover>span:last-child{color:var(--accent)}
+    .owner-quick-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;background:var(--pale);color:var(--accent)}
+    .owner-content .panel{box-shadow:0 8px 24px #1c3c7009}
+    .owner-content .table th{padding:11px 9px}.owner-content .table td{padding:13px 9px}
+    @media(max-width:980px){.owner-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.owner-dashboard-grid{grid-template-columns:1fr}.content.owner-content{padding:20px}}
+    @media(max-width:700px){.owner-stats{gap:9px}.owner-stats .stat{min-height:122px;padding:14px 11px 12px 46px}.owner-stat-icon{left:10px;top:12px;width:26px;height:26px}.owner-dashboard-grid>.panel{padding:15px}.owner-content:not(.owner-content-home)>.heading{padding:16px;margin-bottom:16px}.owner-content:not(.owner-content-home)>.heading h1{font-size:24px}.classic-mdm-management{margin-top:18px;padding-top:18px}.classic-mdm-management>.heading h1{font-size:21px}}
+    @media(max-width:430px){.owner-stats{grid-template-columns:1fr 1fr}.owner-stats .stat{padding:46px 11px 12px}.owner-stat-icon{left:11px;top:10px}.content.owner-content{padding:16px 12px}.classic-mdm-management .stats{grid-template-columns:1fr 1fr}}
+  </style>
 </head>
 <body>
   <div id="app"><div class="auth-wrap"><section class="auth"><h1>YiDream Suite</h1><p>Chargement de votre espace revendeur…</p></section></div></div>
