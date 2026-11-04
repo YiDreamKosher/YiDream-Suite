@@ -47,3 +47,32 @@ body{background:var(--bg);color:var(--ink)}
 .embedded .sidebar,.embedded .topbar,.embedded footer{display:none}.embedded main{margin:0;padding:0;max-width:none}.embedded .view-tools{padding-top:0}.embedded .page-heading{padding-top:12px}.embedded section[id]{scroll-margin-top:0}.embedded .panel{box-shadow:none}.embedded #status:not(:empty){margin-top:8px}
 @media(max-width:720px){.home-shortcuts{grid-template-columns:1fr;gap:10px}.home-shortcuts a{padding:16px 48px 16px 16px;gap:4px}.home-shortcuts .shortcut-icon{display:none}.home-shortcuts b{top:20px}.catalog-row{grid-template-columns:minmax(0,1fr) auto;gap:12px}.app-detail{grid-column:1/-1;grid-row:2}.app-release{align-items:end}.catalog-row>.row-actions{grid-column:1/-1}.catalog-panel .panel-header{flex-direction:column}.catalog-header-actions{width:100%;justify-content:space-between}#catalogEditor{padding:18px;width:calc(100% - 20px);max-height:calc(100dvh - 20px)}.view-tools{padding-top:14px}.import-heading{align-items:start;flex-direction:column}.gplay-actions .button{white-space:normal;text-align:center}.stats{gap:8px}.stats article{padding:12px}.home-shortcuts strong{font-size:13px}}
 #catalogEditor{top:0;bottom:auto;margin:20px auto;max-height:min(600px,calc(100dvh - 40px))}
+
+/* Home panel embedded inside the YiDream Suite owner console. */
+.embedded #homePanel .page-heading{position:relative;overflow:hidden;margin:10px 0 16px;padding:21px 23px;border:1px solid #e5e1f5;border-radius:17px;background:linear-gradient(112deg,#fff 0%,#fbfaff 67%,#f2edff 100%)}
+.embedded #homePanel .page-heading:after{content:"";position:absolute;right:-34px;top:-72px;width:185px;height:185px;border:1px solid #ded5fb;border-radius:50%;box-shadow:0 0 0 20px #f0ebfc70,0 0 0 42px #f0ebfc40;pointer-events:none}
+.embedded #homePanel .eyebrow{color:#7257d6;font-size:9px;letter-spacing:.15em}
+.embedded #homePanel h1{position:relative;z-index:1;margin:7px 0 6px;font-size:clamp(23px,2.4vw,31px);letter-spacing:-1px}
+.embedded #homePanel .page-heading p{position:relative;z-index:1;max-width:650px;font-size:12px}
+.embedded #homePanel .stats{gap:12px;margin:0 0 15px}
+.embedded #homePanel .stats article{position:relative;min-height:126px;padding:16px 17px 14px 57px;border:1px solid #dfe6f2;border-radius:15px;box-shadow:0 8px 22px #1c3c7009;transition:transform .16s ease,box-shadow .16s ease}
+.embedded #homePanel .stats article:hover{transform:translateY(-2px);box-shadow:0 12px 26px #1c3c7012}
+.embedded #homePanel .stats article:before{position:absolute;left:15px;top:16px;width:28px;height:28px;display:grid;place-items:center;border-radius:9px;background:#f0ebfc;color:#7257d6;font-size:14px;font-weight:800}
+.embedded #homePanel .stats article:nth-child(1):before{content:"◎"}
+.embedded #homePanel .stats article:nth-child(2):before{content:"▦";background:#eaf2ff;color:#3972c9}
+.embedded #homePanel .stats article:nth-child(3):before{content:"▯";background:#e8f6ef;color:#2c8052}
+.embedded #homePanel .stats span{font-size:10px;font-weight:700;line-height:1.4}
+.embedded #homePanel .stats strong{margin:8px 0 2px;font-size:27px;letter-spacing:-.8px}
+.embedded #homePanel .stats small{font-size:10px;line-height:1.4}
+.embedded #homePanel .home-shortcuts{gap:12px;margin:0 0 3px}
+.embedded #homePanel .home-shortcuts a{min-height:125px;padding:16px;background:linear-gradient(155deg,#fff,#fdfcff);border-color:#e1e6f0;border-radius:15px;box-shadow:0 7px 20px #1c3c7007;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
+.embedded #homePanel .home-shortcuts a:hover{transform:translateY(-2px);border-color:#c8baf3;box-shadow:0 12px 25px #1c3c7010}
+.embedded #homePanel .shortcut-icon{width:31px;height:31px;display:grid;place-items:center;border-radius:9px;background:#f1edff;font-size:16px}
+.embedded #homePanel .home-shortcuts strong{font-size:11px}
+.embedded #homePanel .home-shortcuts a>span:last-of-type{max-width:220px;font-size:10px;line-height:1.45}
+.embedded #homePanel .home-shortcuts b{right:16px;top:20px;font-size:15px}
+.embedded .view-tools{min-height:47px;padding:7px 0 6px}
+.embedded .view-tools>.button{min-height:34px;padding:7px 11px;border-radius:9px;font-size:10px}
+.embedded #status{border-radius:10px}
+.embedded .classic-mdm-management{border-color:#e0e5ef}
+@media(max-width:720px){.embedded #homePanel .page-heading{padding:17px 16px}.embedded #homePanel .page-heading:after{right:-80px}.embedded #homePanel .stats{grid-template-columns:1fr 1fr}.embedded #homePanel .stats article{min-height:112px;padding:45px 12px 12px}.embedded #homePanel .stats article:before{left:11px;top:10px}.embedded #homePanel .home-shortcuts{grid-template-columns:1fr}.embedded #homePanel .home-shortcuts a{min-height:78px;padding:13px 43px 13px 14px}.embedded #homePanel .home-shortcuts .shortcut-icon{display:grid}.embedded #homePanel .home-shortcuts b{right:15px;top:17px}}
