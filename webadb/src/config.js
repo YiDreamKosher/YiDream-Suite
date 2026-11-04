@@ -13,7 +13,7 @@ export const CONFIG = {
 
   // Le site refuse de fonctionner ailleurs que sur ces adresses.
   allowedSites: [
-    { origin: 'https://qinfrance.github.io', paths: ['/YiDream/', '/YiDream-Suite/'] },
+    { origin: 'https://yidreamkosher.github.io', paths: ['/YiDream/', '/YiDream-Suite/'] },
   ],
 };
 

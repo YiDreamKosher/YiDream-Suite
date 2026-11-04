@@ -1,0 +1,9 @@
+.classic-mdm-view{width:100%;min-width:0;margin:0 0 26px}
+.classic-mdm-frame{display:block;width:100%;height:540px;min-height:160px;border:0;background:transparent;overflow:hidden}
+.classic-mdm-view[data-mdm-view="home"] .classic-mdm-frame{height:410px}
+.classic-mdm-management{margin-top:28px}
+.classic-mdm-management .heading{padding-top:4px}
+.app-links .mdm-app-link{min-height:43px;line-height:1.4}
+.app-links .mdm-app-link[aria-current="page"]{background:var(--pale);color:var(--accent);font-weight:800}
+.classic-mdm-brand-note{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.08em}
+@media(max-width:700px){.classic-mdm-view{margin-bottom:20px}.classic-mdm-view[data-mdm-view="home"] .classic-mdm-frame{height:600px}.classic-mdm-management{margin-top:20px}}

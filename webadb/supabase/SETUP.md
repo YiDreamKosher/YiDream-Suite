@@ -45,9 +45,13 @@ Cette opération est nécessaire une seule fois et l’adresse du propriétaire 
 ## Connexion Google
 
 1. Crée un client OAuth Google de type **Application Web**.
-2. Dans les origines JavaScript autorisées, ajoute `https://qinfrance.github.io`.
+2. Dans les origines JavaScript autorisées, ajoute `https://yidreamkosher.github.io`.
 3. Dans les URI de redirection autorisées, ajoute l’URL de rappel Supabase : `https://jqrznghqwdjbizjehzrm.supabase.co/auth/v1/callback`.
 4. Dans Supabase **Authentication → Providers → Google**, active Google et ajoute le Client ID et le secret.
-5. Dans **Authentication → URL Configuration**, autorise `https://qinfrance.github.io/YiDream-Suite/admin/`.
+5. Dans **Authentication → URL Configuration**, autorise les adresses de la console :
+   - `https://yidreamkosher.github.io/YiDream-Suite/admin`
+   - `https://yidreamkosher.github.io/YiDream-Suite/admin/`
+   - `https://yidreamkosher.github.io/YiDream-Suite/admin.html`
+   - `https://yidreamkosher.github.io/YiDream-Suite/admin/index.html`
 
 Ne mets jamais le secret OAuth Google ni une clé `service_role` dans GitHub. La clé publishable présente dans le client web est conçue pour être publique et reste soumise aux politiques RLS.

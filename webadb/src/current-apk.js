@@ -1,12 +1,13 @@
-export const MANIFEST_URL = 'https://qinfrance.github.io/YiDream/version.json';
-export const APK_URL = 'https://qinfrance.github.io/YiDream/admin/yidream.apk';
+export const MANIFEST_URL = 'https://yidreamkosher.github.io/YiDream/version.json';
+export const LEGACY_APK_URL = 'https://qinfrance.github.io/YiDream/admin/yidream.apk';
+export const APK_URL = 'https://yidreamkosher.github.io/YiDream/admin/yidream.apk';
 
-/** The admin and the device updater consume the same release, with no stale fallback. */
+/** Fetch the published release at its new official host; allow the exact pre-transfer manifest URL only, with unchanged SHA verification. */
 export async function fetchCurrentApk(fetcher = fetch, cryptoProvider = crypto) {
   const manifestResponse = await fetcher(MANIFEST_URL, { cache: 'no-store', redirect: 'error' });
   if (!manifestResponse.ok) throw new Error('Manifeste YiDream indisponible.');
   const manifest = await manifestResponse.json();
-  if (manifest.apkUrl !== APK_URL || !/^[a-f0-9]{64}$/i.test(manifest.apkSha256 || '') ||
+  if (!([APK_URL, LEGACY_APK_URL].includes(manifest.apkUrl)) || !/^[a-f0-9]{64}$/i.test(manifest.apkSha256 || '') ||
       !Number.isInteger(manifest.versionCode) || manifest.versionCode < 12) {
     throw new Error('Version YiDream ou empreinte invalide.');
   }

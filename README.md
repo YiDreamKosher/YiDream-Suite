@@ -24,9 +24,9 @@ Fusion du design **Suite** (Admin, Android, iOS, Info) avec la logique du config
 
 ## Mise en ligne
 
-1. Pousse ce dossier sur la branche `main` (dépôt `QinFrance/YiDream` pour garder l'adresse actuelle).
+1. Pousse ce dossier sur la branche `main` (dépôt `YiDreamKosher/YiDream-Suite`).
 2. `Settings → Pages → Source : GitHub Actions`.
-3. Le workflow compile l'APK et les deux pages puis publie `https://qinfrance.github.io/YiDream-Suite/`. Le tableau de bord revendeur s’ouvre avec la tuile Admin ; le configurateur USB Android reste dans YiDream Suite.
+3. Le workflow compile l'APK et les deux pages puis publie `https://yidreamkosher.github.io/YiDream-Suite/`. Le tableau de bord revendeur s’ouvre avec la tuile Admin ; le configurateur USB Android reste dans YiDream Suite.
 
 Si tu publies sous un autre nom de dépôt, ajoute son chemin dans `allowedSites` (`webadb/src/config.js`), sinon l'écran « Site non autorisé » s'affiche.
 
@@ -36,7 +36,7 @@ Si tu publies sous un autre nom de dépôt, ajoute son chemin dans `allowedSites
 - **Ce verrou n'est pas une vraie sécurité** : il tourne dans le navigateur et le hash est lisible dans le code du site. Il empêche un usage accidentel, pas un attaquant. Pour une offre professionnelle, il faudra une authentification côté serveur (comptes, sessions, isolation par revendeur).
 - Le blocage par catégories est appliqué par l'app Android (Device Owner), pas par le site : le site ne fait qu'envoyer `yidream_config.json`.
 - Compatibilité non garantie sur tous les téléphones (Device Owner, WebUSB, constructeur). À documenter au fur et à mesure des tests.
-- Licence : aucune licence open source n'est incluse. Vérifie l'historique public du dépôt `QinFrance/YiDream` avant une diffusion commerciale.
+- Licence : aucune licence open source n'est incluse. Vérifie l'historique public du dépôt `YiDreamKosher/YiDream` avant une diffusion commerciale.
 
 ## Développement local
 

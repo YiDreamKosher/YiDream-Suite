@@ -5,6 +5,7 @@ const db = new PGlite(); await db.waitReady;
 async function migrate(){
  await db.exec(await readFile(new URL('../migrations/20261029000000_mdm_catalog_and_site_requests.sql', import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../migrations/20261030000000_catalog_releases_and_revocation.sql', import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../migrations/20261104000000_owner_only_app_import.sql', import.meta.url),'utf8'));
 }
 
 await db.exec(`
@@ -80,5 +81,34 @@ await db.query("select set_config('request.headers',$1,false)",[JSON.stringify({
 const downloads=(await db.query('select * from storage.objects')).rows;assert.equal(downloads.length,1);assert.equal(downloads[0].name,'00000000-0000-4000-8000-000000000003/whatsapp.apk');
 await db.query("select set_config('request.headers',$1,false)",[JSON.stringify({'x-yidream-device-token':'invalid'})]);
 assert.equal((await db.query('select * from storage.objects')).rows.length,0);
+// Import rights are enforced by storage, independently of the owner-only interface.
+const owner='00000000-0000-4000-8000-000000000003';
+await db.exec('reset role');
+await db.query("select set_config('request.headers','{}',false)");
+await act('authenticated',a);
+await assert.rejects(()=>db.query("insert into storage.objects(bucket_id,name)values('yd-apks',$1)",[a+'/forbidden.apk']));
+assert.equal((await db.query("update storage.objects set name=name where name=$1 returning id",[a+'/a.apk'])).rows.length,0);
+// Existing external HTTPS catalog publication is still available to each administrator.
+await db.query("insert into public.yd_catalog(name,package_name,apk_url,sha256) values('External app','com.example.external','https://example.com/external.apk',$1)",['1'.repeat(64)]);
+await act('authenticated',owner);
+assert.equal(await scalar('select public.is_platform_owner()'),true);
+await db.query("insert into storage.objects(bucket_id,name)values('yd-apks',$1)",[owner+'/new-owner-import.apk']);
+assert.equal((await db.query("update storage.objects set name=name where name=$1 returning id",[owner+'/new-owner-import.apk'])).rows.length,1);
+await assert.rejects(()=>db.query("insert into storage.objects(bucket_id,name)values('unrelated-bucket','not-authorized.apk')"));
+await db.exec('reset role');
+await db.query('update public.platform_admins set is_active=false where user_id=$1',[owner]);
+await act('authenticated',owner);
+assert.equal(await scalar('select public.is_platform_owner()'),false);
+await assert.rejects(()=>db.query("insert into storage.objects(bucket_id,name)values('yd-apks',$1)",[owner+'/inactive-owner.apk']));
+assert.equal((await db.query("update storage.objects set name=name where name=$1 returning id",[owner+'/new-owner-import.apk'])).rows.length,0);
+await act('anon');
+await assert.rejects(()=>db.query("insert into storage.objects(bucket_id,name)values('yd-apks','anonymous.apk')"));
+await db.query("select set_config('request.headers',$1,false)",[JSON.stringify({'x-yidream-device-token':tokenA})]);
+assert.equal((await db.query('select * from storage.objects')).rows.length,2);
+await db.exec('reset role');
+await migrate();
+assert.equal(await scalar('select is_active from public.platform_admins where user_id=$1',[owner]),false);
+assert.equal(await scalar('select count(*) from storage.objects'),3);
+assert.equal(await scalar("select status from public.yd_site_requests where id=$1",[id]),'revoked');
 await db.close();
-console.log('PASS: migration reruns preserve issued tokens, catalog and reviewed requests; one-time pairing, protected tokens, per-account catalog and requests, idempotent submission, administrator isolation, response synchronization, revocation, shared base catalog and scoped private APK downloads.');
+console.log('PASS: migration reruns preserve issued tokens, catalog and reviewed requests; one-time pairing, protected tokens, per-account catalog and requests, idempotent submission, administrator isolation, response synchronization, revocation, shared base catalog and scoped private APK downloads; owner-only imports reject ordinary administrators, inactive owners, anonymous users and unrelated buckets while preserving external catalog publication and existing device downloads.');

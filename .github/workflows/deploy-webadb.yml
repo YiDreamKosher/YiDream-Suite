@@ -31,14 +31,15 @@ jobs:
       - name: Récupérer l’APK YiDream officiel et vérifier son empreinte
         run: |
           mkdir -p webadb/public
-          curl --fail --silent --show-error --retry 3 https://qinfrance.github.io/YiDream/version.json -o "$RUNNER_TEMP/yidream-version.json"
-          APK_URL=$(jq -er '.apkUrl | select(. == "https://qinfrance.github.io/YiDream/admin/yidream.apk")' "$RUNNER_TEMP/yidream-version.json")
+          curl --fail --silent --show-error --retry 3 https://yidreamkosher.github.io/YiDream/version.json -o "$RUNNER_TEMP/yidream-version.json"
+          ADVERTISED_APK_URL=$(jq -er '.apkUrl | select(. == "https://yidreamkosher.github.io/YiDream/admin/yidream.apk" or . == "https://qinfrance.github.io/YiDream/admin/yidream.apk")' "$RUNNER_TEMP/yidream-version.json")
+          APK_URL="https://yidreamkosher.github.io/YiDream/admin/yidream.apk"
           APK_SHA=$(jq -er '.apkSha256 | select(test("^[a-fA-F0-9]{64}$"))' "$RUNNER_TEMP/yidream-version.json")
           curl --fail --silent --show-error --retry 3 "$APK_URL" -o webadb/public/yidream.apk
           echo "$APK_SHA  webadb/public/yidream.apk" | sha256sum --check
-          cp "$RUNNER_TEMP/yidream-version.json" webadb/public/yidream-version.json
-          curl --fail --silent --show-error --retry 3 https://qinfrance.github.io/YiDream/admin/yidream-build.json -o webadb/public/yidream-build.json
-          cat webadb/supabase/migrations/20261029000000_mdm_catalog_and_site_requests.sql webadb/supabase/migrations/20261030000000_catalog_releases_and_revocation.sql > webadb/public/mdm-setup.sql
+          jq --arg apk "$APK_URL" '.apkUrl = $apk' "$RUNNER_TEMP/yidream-version.json" > webadb/public/yidream-version.json
+          curl --fail --silent --show-error --retry 3 https://yidreamkosher.github.io/YiDream/admin/yidream-build.json -o webadb/public/yidream-build.json
+          cat webadb/supabase/migrations/20261029000000_mdm_catalog_and_site_requests.sql webadb/supabase/migrations/20261030000000_catalog_releases_and_revocation.sql webadb/supabase/migrations/20261104000000_owner_only_app_import.sql > webadb/public/mdm-setup.sql
 
       # --- Compilation et déploiement du site ---
       - name: Installer Node.js
@@ -59,7 +60,8 @@ jobs:
       - name: Compiler le site
         working-directory: webadb
         run: |
-          node --test tests/current-apk.test.mjs tests/mdm-model.test.mjs
+          python3 -m unittest discover -s tests -p 'owner_import_test.py'
+          node --test tests/current-apk.test.mjs tests/mdm-model.test.mjs tests/mdm-shell.test.mjs tests/mdm-views.test.mjs
           npm run build
 
       - name: Configurer GitHub Pages
