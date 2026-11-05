@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YiDream · Activer l’import Google Play</title>
+<style>
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#102448;background:#f6f8fc;line-height:1.6}
+*{box-sizing:border-box}body{margin:0;padding:32px 18px}.wrap{max-width:850px;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #dce5f2;padding-bottom:18px;color:#73819a;font-size:13px}.top a,.back{color:#7257d6;text-decoration:none;font-weight:700}.card{margin:28px 0;background:white;border:1px solid #dce5f2;border-radius:18px;padding:26px;box-shadow:0 12px 35px #1c3c7012}h1{font-size:32px;line-height:1.2;letter-spacing:-1px;margin:8px 0}h2{font-size:19px;margin:26px 0 8px}.eyebrow{text-transform:uppercase;letter-spacing:1.7px;font-weight:800;font-size:10px;color:#7257d6}p,li{color:#586b87;font-size:14px}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f4fb;border:1px solid #e6e0f5;border-radius:12px;padding:15px;color:#28365a;font-size:12px}.notice{background:#fff9e9;border:1px solid #f0e3bd;border-radius:12px;padding:14px;color:#735920;font-size:13px}.good{background:#f1faf6;border-color:#d1eddf;color:#286b4c}[hidden]{display:none!important}.pill{display:inline-block;border-radius:20px;background:#f0ebfc;color:#7257d6;padding:4px 10px;font-size:11px;font-weight:700}
+</style></head>
+<body><main class="wrap">
+<div class="top"><strong>YiDream Suite · MDM</strong><a href="./admin.html#mdm-catalog">Retour à la boutique</a></div>
+<section id="accessMessage" class="card" role="status"><h1>Outils d’import YiDream</h1><p>Vérification de votre accès d’admin des admins…</p></section>
+<section id="ownerGuide" class="card" hidden><span class="eyebrow">Import d’applications Android</span><h1>Activer l’import Google Play</h1><p>La page YiDream est hébergée sur GitHub Pages. Pour télécharger une APK, un petit service doit tourner sur l’ordinateur qui utilise la console. Il reste accessible uniquement sur cet ordinateur. La passerelle YiDream vérifie votre session et votre rôle d’admin des admins à chaque import.</p>
+<div class="notice">Ce guide utilise le projet ouvert <a href="https://github.com/alltechdev/gplay-apk-downloader" target="_blank" rel="noopener">alltechdev/gplay-apk-downloader</a> (licence GPL-3.0). Il ne copie pas son code dans YiDream.</div>
+<h2>1 · Installer les prérequis sur Mac</h2><ol><li>Installe Python 3 et Java 17.</li><li>Dans Android Studio → SDK Manager → SDK Tools, installe « Android SDK Build-Tools » pour avoir <code>apksigner</code>.</li><li>Dans Terminal, ajoute Java 17 et le dossier Build-Tools au chemin. Remplace <code>XX.X.X</code> par le numéro du dossier installé :</li></ol>
+<pre>export PATH="$(brew --prefix openjdk@17)/bin:$PATH"
+export PATH="$PATH:$HOME/Library/Android/sdk/build-tools/XX.X.X"</pre>
+<h2>2 · Télécharger et préparer le service</h2><pre>git clone --depth 1 https://github.com/alltechdev/gplay-apk-downloader.git
+cd gplay-apk-downloader
+./setup.sh</pre><p>Si la préparation indique qu’une dépendance manque, installe-la puis relance <code>./setup.sh</code>.</p>
+<h2>3 · Démarrer le fournisseur en local</h2><p>Dans le même Terminal, lance :</p><pre>source .venv/bin/activate
+CORS_ORIGINS=http://127.0.0.1:5001 HOST=127.0.0.1 PORT=5001 python3 server.py</pre><p>Laisse cette fenêtre Terminal ouverte pendant l’import. L’adresse est limitée à ton ordinateur.</p>
+<h2>4 · Connecter le compte Google Play</h2><p>Ouvre <a href="http://127.0.0.1:5001/" target="_blank" rel="noopener">le téléchargeur local</a>, puis connecte un compte Google dédié si le service le demande. Le projet recommande de ne pas utiliser ton compte Google principal.</p>
+<h2>5 · Démarrer la passerelle YiDream</h2><p>Téléchargez <a href="./tools/yidream-owner-import.py" download="yidream-owner-import.py">la passerelle YiDream</a>. Dans un deuxième Terminal, ouvrez le dossier du fichier puis lancez :</p><pre>python3 yidream-owner-import.py</pre><p>Gardez les deux fenêtres ouvertes. Le fournisseur utilise le port 5001 et la passerelle le port 5000. La passerelle refuse les comptes administrateurs ordinaires, les sessions expirées et les accès suspendus. Vous n’avez aucun jeton à copier dans le Terminal.</p>
+<h2>6 · Importer dans YiDream</h2><ol><li>Retourne dans <a href="./admin.html#mdm-catalog">la boutique de YiDream Suite</a>.</li><li>Colle le lien Google Play de l’application et clique « Lire la fiche Play ».</li><li>Clique « Télécharger l’APK », vérifie le paquet, la version et l’empreinte, puis « Publier dans la boutique ».</li></ol>
+<div class="notice">Attention : si une application est distribuée en plusieurs APK, le téléchargeur peut les fusionner et signer le résultat avec une clé de débogage. Certaines applications peuvent alors refuser l’installation, la connexion ou les mises à jour. Vérifie l’application avant de la déployer. Les applications payantes ne sont pas prises en charge par le projet.</div>
+<h2>À propos des données</h2><p>Le service fonctionne sur ton ordinateur. Les identifiants de téléchargement Google sont conservés localement par ce projet tiers. Les APK importées ensuite sont envoyées au stockage privé YiDream. La session YiDream est envoyée uniquement à la passerelle locale et à Supabase pour vérifier vos droits ; elle n’est pas transmise au fournisseur Google Play ni à Eagleye.</p>
+<p><a class="back" href="./admin.html#mdm-catalog">← Retour à YiDream Suite</a></p></section>
+</main><script type="module">
+import {createClient} from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+const message=document.getElementById('accessMessage'),guide=document.getElementById('ownerGuide');
+try {
+ const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
+ const {data,error}=await db.auth.getSession();
+ if(error||!data.session)throw Error('Connectez-vous à YiDream Suite avec votre compte d’admin des admins pour ouvrir ce guide.');
+ const result=await db.rpc('is_platform_owner');
+ if(result.error||result.data!==true)throw Error('Ces outils sont réservés au compte actif d’admin des admins.');
+ message.hidden=true;guide.hidden=false;
+} catch(error) {
+ message.querySelector('p').textContent=error.message||'Impossible de vérifier votre accès. Réessayez depuis YiDream Suite.';
+}
+</script></body></html>

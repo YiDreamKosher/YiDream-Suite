@@ -28,30 +28,18 @@ jobs:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
-      # --- Compilation de l'APK Android, pour le bundler dans le site ---
-      - name: Installer Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Configurer le SDK Android
-        uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-          accept-android-sdk-licenses: true
-
-      - name: Générer le gradle wrapper
-        run: gradle wrapper --gradle-version 8.7
-
-      - name: Rendre gradlew exécutable
-        run: chmod +x ./gradlew
-
-      - name: Compiler l'APK debug
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Copier l'APK dans le site (servi automatiquement)
-        run: cp app/build/outputs/apk/debug/app-debug.apk webadb/public/yidream.apk
+      - name: Récupérer l’APK YiDream officiel et vérifier son empreinte
+        run: |
+          mkdir -p webadb/public
+          curl --fail --silent --show-error --retry 3 https://yidreamkosher.github.io/YiDream/version.json -o "$RUNNER_TEMP/yidream-version.json"
+          ADVERTISED_APK_URL=$(jq -er '.apkUrl | select(. == "https://yidreamkosher.github.io/YiDream/admin/yidream.apk" or . == "https://qinfrance.github.io/YiDream/admin/yidream.apk")' "$RUNNER_TEMP/yidream-version.json")
+          APK_URL="https://yidreamkosher.github.io/YiDream/admin/yidream.apk"
+          APK_SHA=$(jq -er '.apkSha256 | select(test("^[a-fA-F0-9]{64}$"))' "$RUNNER_TEMP/yidream-version.json")
+          curl --fail --silent --show-error --retry 3 "$APK_URL" -o webadb/public/yidream.apk
+          echo "$APK_SHA  webadb/public/yidream.apk" | sha256sum --check
+          jq --arg apk "$APK_URL" '.apkUrl = $apk' "$RUNNER_TEMP/yidream-version.json" > webadb/public/yidream-version.json
+          curl --fail --silent --show-error --retry 3 https://yidreamkosher.github.io/YiDream/admin/yidream-build.json -o webadb/public/yidream-build.json
+          cat webadb/supabase/migrations/20261029000000_mdm_catalog_and_site_requests.sql webadb/supabase/migrations/20261030000000_catalog_releases_and_revocation.sql webadb/supabase/migrations/20261104000000_owner_only_app_import.sql > webadb/public/mdm-setup.sql
 
       # --- Compilation et déploiement du site ---
       - name: Installer Node.js
@@ -59,13 +47,22 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Vérifier les réexécutions de la migration SQL
+        working-directory: webadb/supabase/tests
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
       - name: Installer les dépendances
         working-directory: webadb
         run: npm ci
 
       - name: Compiler le site
         working-directory: webadb
-        run: npm run build
+        run: |
+          python3 -m unittest discover -s tests -p 'owner_import_test.py'
+          node --test tests/current-apk.test.mjs tests/mdm-model.test.mjs tests/mdm-shell.test.mjs tests/mdm-views.test.mjs
+          npm run build
 
       - name: Configurer GitHub Pages
         uses: actions/configure-pages@v5
@@ -73,6 +70,7 @@ jobs:
       - name: Préparer l'artefact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages-${{ github.run_attempt }}
           path: webadb/dist
 
   deploy:
@@ -85,3 +83,5 @@ jobs:
       - name: Déployer sur GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}

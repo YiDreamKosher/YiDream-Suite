@@ -1,3 +1,4 @@
+import { fetchCurrentApk } from './current-apk.js';
 // YiDream v1.2 — interface de YiDream Android (configurateur Web ADB) branchée sur la vraie logique.
 import { YiDreamAdb, parseExtraPackages } from './adb.js';
 import { CONFIG } from './config.js';
@@ -19,14 +20,6 @@ const t = (k) => UI_STRINGS[lang()]?.[k] ?? UI_STRINGS.en[k] ?? k;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const $ = (id) => document.getElementById(id);
 const toast = (m) => window.toast && window.toast(m);
-
-const appCatalog = {
-  'Navigateurs internet': [['Chrome','com.android.chrome'],['Chrome Beta','com.chrome.beta'],['Firefox','org.mozilla.firefox'],['Samsung Internet','com.sec.android.app.sbrowser'],['Opera','com.opera.browser'],['Opera Mini','com.opera.mini.native'],['Microsoft Edge','com.microsoft.emmx'],['Brave','com.brave.browser'],['DuckDuckGo','com.duckduckgo.mobile.android'],['UC Browser','com.UCMobile.intl'],['Kiwi Browser','com.kiwiz.browser'],['Vivaldi','com.vivaldi.browser'],['Navigateur Android','com.android.browser']],
-  'Assistants IA': [['ChatGPT','com.openai.chatgpt'],['Gemini','com.google.android.apps.bard'],['Google AI','com.google.android.apps.aichat'],['Microsoft Copilot','com.microsoft.copilot'],['Claude','com.anthropic.claude'],['Perplexity','ai.perplexity.app.android'],['DeepSeek','com.deepseek.chat'],['Grok','com.x.grok'],['Character.AI','com.character.ai']],
-  'Réseaux sociaux': [['Instagram','com.instagram.android'],['TikTok','com.zhiliaoapp.musically'],['Facebook','com.facebook.katana'],['Snapchat','com.snapchat.android'],['X','com.twitter.android'],['Reddit','com.reddit.frontpage']],
-  'Boutique d’applications': [['Google Play Store','com.android.vending']]
-};
-const defaultBlockedPackages = new Set(Object.values(appCatalog).flat().map(([,pkg]) => pkg));
 
 // ---- Journal (onglet Logs + boîte de log en direct) ----
 function log(step, event) {
@@ -106,14 +99,14 @@ const sections = {
       state.selectedApk = manual || state.bundledApk || null;
       btn.disabled = !state.selectedApk || !client.info;
       if (manual) setPill(true, `${t('log_apk_found')} · ${manual.name} (${(manual.size / 1048576).toFixed(1)} Mo)`);
-      else if (state.bundledApk) setPill(true, `${t('log_apk_found')} (${(state.bundledApk.size / 1048576).toFixed(1)} Mo)`);
+      else if (state.bundledApk) setPill(true, `${t('log_apk_found')} · ${state.apkVersion || ''} (${(state.bundledApk.size / 1048576).toFixed(1)} Mo)`);
       else setPill(false, t('log_apk_not_found'));
     };
     (async () => {
       try {
-        const r = await fetch('./yidream.apk', { cache: 'no-store' });
-        if (!r.ok) throw new Error('nf');
-        state.bundledApk = await r.blob();
+        const release = await fetchCurrentApk();
+        state.bundledApk = release.blob;
+        state.apkVersion = release.versionName;
       } catch { state.bundledApk = null; }
       refreshSource();
     })();
