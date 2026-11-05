@@ -76,3 +76,14 @@ body{background:var(--bg);color:var(--ink)}
 .embedded #status{border-radius:10px}
 .embedded .classic-mdm-management{border-color:#e0e5ef}
 @media(max-width:720px){.embedded #homePanel .page-heading{padding:17px 16px}.embedded #homePanel .page-heading:after{right:-80px}.embedded #homePanel .stats{grid-template-columns:1fr 1fr}.embedded #homePanel .stats article{min-height:112px;padding:45px 12px 12px}.embedded #homePanel .stats article:before{left:11px;top:10px}.embedded #homePanel .home-shortcuts{grid-template-columns:1fr}.embedded #homePanel .home-shortcuts a{min-height:78px;padding:13px 43px 13px 14px}.embedded #homePanel .home-shortcuts .shortcut-icon{display:grid}.embedded #homePanel .home-shortcuts b{right:15px;top:17px}}
+
+/* The Suite shell owns the welcome and navigation. Embedded home shows only live counts. */
+.embedded:has(#homePanel:not([hidden])) .view-tools{padding:0 0 10px;justify-content:flex-end}
+.embedded:has(#homePanel:not([hidden])) #viewCaption{display:none}
+.embedded #homePanel .page-heading,.embedded #homePanel .home-shortcuts{display:none}
+.embedded #homePanel .stats{margin:0;gap:14px}
+.embedded #homePanel .stats article{padding:20px;min-height:132px;box-shadow:none;border-radius:18px}
+.embedded #homePanel .stats article:before{display:none}
+.embedded #homePanel .stats article:hover{transform:none;box-shadow:none}
+.embedded #homePanel .stats strong{font-size:30px;margin:8px 0 4px}
+@media(max-width:560px){.embedded #homePanel .stats{grid-template-columns:1fr}.embedded #homePanel .stats article{min-height:100px;padding:16px}}
