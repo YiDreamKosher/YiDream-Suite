@@ -32,11 +32,15 @@ revoke all on function public.is_platform_owner() from public;
 grant execute on function public.is_platform_admin() to authenticated;
 grant execute on function public.is_platform_owner() to authenticated;
 
+-- Owners and admins keep access to their own role row so the frontend can show
+-- the suspended screen; protected business tables still require is_platform_admin().
 drop policy if exists "profile visible to account or owner" on public.reseller_profiles;
 create policy "profile visible to active account or owner"
   on public.reseller_profiles for select to authenticated
   using ((user_id = (select auth.uid()) and public.is_platform_admin()) or public.is_platform_owner());
 
+-- All role mutations now go through SECURITY DEFINER RPCs, which enforce owner
+-- checks and write the audit log.
 revoke insert, update, delete on public.platform_admins from authenticated;
 revoke insert, update, delete on public.platform_admins from anon, public;
 grant select on public.platform_admins to authenticated;
@@ -90,4 +94,6 @@ $$;
 revoke all on function public.set_platform_admin_access(uuid, boolean) from public, anon;
 grant execute on function public.set_platform_admin_access(uuid, boolean) to authenticated;
 
+-- A suspended admin may have an unexpired Supabase auth token, but RLS checks
+-- is_platform_admin() on each protected request and rejects it immediately.
 notify pgrst, 'reload schema';
