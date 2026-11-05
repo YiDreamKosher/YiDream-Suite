@@ -14,8 +14,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: "pages"
@@ -61,7 +59,7 @@ jobs:
         working-directory: webadb
         run: |
           python3 -m unittest discover -s tests -p 'owner_import_test.py'
-          node --test tests/current-apk.test.mjs tests/mdm-model.test.mjs tests/mdm-shell.test.mjs tests/mdm-views.test.mjs
+          node --test tests/*.test.mjs
           npm run build
 
       - name: Configurer GitHub Pages
@@ -75,6 +73,10 @@ jobs:
 
   deploy:
     needs: build
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     runs-on: ubuntu-latest
     environment:
       name: github-pages

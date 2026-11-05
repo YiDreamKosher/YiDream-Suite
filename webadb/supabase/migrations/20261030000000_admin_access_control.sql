@@ -35,6 +35,7 @@ grant execute on function public.is_platform_owner() to authenticated;
 -- Owners and admins keep access to their own role row so the frontend can show
 -- the suspended screen; protected business tables still require is_platform_admin().
 drop policy if exists "profile visible to account or owner" on public.reseller_profiles;
+drop policy if exists "profile visible to active account or owner" on public.reseller_profiles;
 create policy "profile visible to active account or owner"
   on public.reseller_profiles for select to authenticated
   using ((user_id = (select auth.uid()) and public.is_platform_admin()) or public.is_platform_owner());

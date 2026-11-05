@@ -1,0 +1,4 @@
+[functions.application-mail]
+# Handler auth.getUser verifies user tokens, including asymmetric signing keys.
+# Anonymous calls are rejected; the service-role bearer is reserved for the retry worker.
+verify_jwt = false

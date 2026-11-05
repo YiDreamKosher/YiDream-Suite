@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node migration.test.mjs"
+    "test": "node migration.test.mjs && node application.test.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13"
