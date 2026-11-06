@@ -54,12 +54,17 @@ export async function platformRole(){
   if(data?.role==='admin'&&data.is_active===false)return 'suspended';
   return data?.role||null;
 }
-export async function submitAdminApplication({storeName,reason}){
-  const u=await user();
-  const {data,error}=await mustDb().from('admin_applications').insert({
-    user_id:u.id,store_name:storeName.trim(),email:u.email||'',reason:(reason||'').trim()
-  }).select().single();
-  if(error)throw error;
+export async function sendApplicationEmail(applicationId){
+  try { const {data,error}=await mustDb().functions.invoke('application-mail',{body:{applicationId}});return !error&&data?.failed===0; } catch { return false; }
+}
+export async function applicationEmailStatus(applicationId){
+  const {data,error}=await mustDb().from('application_emails').select('event,status,sent_at').eq('application_id',applicationId).order('created_at',{ascending:false});
+  if(error)return null;return data;
+}
+export async function submitAdminApplication(details){
+  const {data,error}=await mustDb().rpc('submit_admin_application',{details});
+  if(error){if(error.code==='23505'){const existing=await myAdminApplication();if(existing?.status==='pending')return existing;}throw error;}
+  await sendApplicationEmail(data.id);
   return data;
 }
 export async function myAdminApplication(){
@@ -86,6 +91,7 @@ export async function loadOwnerData(){
 export async function reviewAdminApplication(id,approve){
   const {error}=await mustDb().rpc('review_admin_application',{application_id:id,approve});
   if(error)throw error;
+  await sendApplicationEmail(id);
 }
 export async function setPlatformAdmin(userId,makeAdmin){
   const {error}=await mustDb().rpc('set_platform_admin',{target_user_id:userId,make_admin:makeAdmin});
