@@ -87,3 +87,18 @@ body{background:var(--bg);color:var(--ink)}
 .embedded #homePanel .stats article:hover{transform:none;box-shadow:none}
 .embedded #homePanel .stats strong{font-size:30px;margin:8px 0 4px}
 @media(max-width:560px){.embedded #homePanel .stats{grid-template-columns:1fr}.embedded #homePanel .stats article{min-height:100px;padding:16px}}
+
+/* Owner-only Play checks keep metadata and published APK releases separate. */
+.play-updates{margin:0 0 24px;padding:20px;border:1px solid #dfd7f6;border-radius:16px;background:#fbfaff}
+.play-updates-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.play-updates h3{font-size:17px;letter-spacing:-.3px;margin:7px 0}
+.play-updates p{font-size:12px;line-height:1.6;max-width:720px}
+.play-updates-heading>.row-actions{flex-shrink:0;max-width:250px;justify-content:flex-end}
+#playUpdatesProgress{font-weight:650;color:var(--accent);margin-bottom:0}
+.play-update-results{display:grid;gap:0}
+.play-update-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 0;border-top:1px solid var(--line)}
+.play-update-row:first-child{margin-top:14px}
+.play-update-row>div{min-width:0}.play-update-row strong{font-size:13px;display:block}
+.play-update-row small{display:block;color:var(--muted);font-size:11px;margin:4px 0 9px;overflow-wrap:anywhere}
+.play-update-row p{margin:8px 0 0;overflow-wrap:anywhere}.play-update-row>.button{flex-shrink:0}
+@media(max-width:720px){.play-updates{padding:16px}.play-updates-heading,.play-update-row{align-items:stretch;flex-direction:column}.play-updates-heading>.row-actions{max-width:none;justify-content:flex-start}.play-update-row>.button{align-self:flex-start}}
