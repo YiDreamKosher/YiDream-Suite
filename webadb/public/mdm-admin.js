@@ -1,12 +1,17 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady } from './mdm-model.js?v=20261030';
 import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261104';
+import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261106';
 import { checkPlayCatalog } from './mdm-play-updates.js?v=20261106';
 import { inspectApk } from './mdm-apk.js?v=20261030';
 const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
 const GPLAY_API='http://127.0.0.1:5000';
 const $=id=>document.getElementById(id),form=$('catalogForm');
+const accountLanguage=new URLSearchParams(location.search).get('lang')||localStorage.getItem('yidream-admin-language')||'en';
+const accountCopy=value=>accountText(value,accountLanguage);
+translateAccountPanel($('pairPanel'),accountLanguage);
 let devices=[],clients=[],requests=[],catalog=[],currentUser=null,isOwner=false,uploaded=null;
+let accountLoad=0,codeExpiryTimer=null;
 let playCheckResults=new Map(),playCheckRun=0,playChecking=false,playAbort=null;
 let view=resolveView(location.search,location.hash);
 let embedded=false;
@@ -24,6 +29,7 @@ function showView(next){
   for(const link of document.querySelectorAll('.nav-link')){const active=link.dataset.view===view;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
   $('viewTitle').textContent=VIEWS[view];$('viewCaption').textContent=VIEWS[view];
   document.title='YiDream · '+VIEWS[view];resizeParent();
+  if(view==='pair'&&currentUser)void loadAppAccounts();
 }
 function navigate(next){
   if(!Object.hasOwn(VIEWS,next))return;
@@ -47,10 +53,10 @@ async function ownerHeaders(){
 }
 const check=r=>{if(r.error)throw r.error;return r.data;};
 const status=(message,error=false,showMigration=false)=>{
-  for(const node of [$('status'),$('editorStatus')]){node.replaceChildren();node.textContent=message;node.classList.toggle('error',error);if(showMigration&&isOwner){node.append(' ');const link=document.createElement('a');link.href='./mdm-setup.sql';link.target='_blank';link.rel='noopener';link.textContent='Ouvrir la mise à jour Supabase';node.append(link);}}
+  for(const node of [$('status'),$('editorStatus')]){node.replaceChildren();node.textContent=accountCopy(message);node.classList.toggle('error',error);if(showMigration&&isOwner){node.append(' ');const link=document.createElement('a');link.href='./mdm-setup.sql';link.target='_blank';link.rel='noopener';link.textContent='Ouvrir la mise à jour Supabase';node.append(link);}}
 };
-const button=(label,kind='secondary')=>{const b=document.createElement('button');b.type='button';b.className='button '+kind;b.textContent=label;return b;};
-const text=(tag,value,className)=>{const e=document.createElement(tag);e.textContent=value;if(className)e.className=className;return e;};
+const button=(label,kind='secondary')=>{const b=document.createElement('button');b.type='button';b.className='button '+kind;b.textContent=accountCopy(label);return b;};
+const text=(tag,value,className)=>{const e=document.createElement(tag);e.textContent=accountCopy(value);if(className)e.className=className;return e;};
 function empty(parent,title,description){const box=document.createElement('div');box.className='empty';box.append(text('div','◎','empty-symbol'),text('strong',title),text('p',description));parent.append(box);}
 function isCatalogSchemaError(e){return e?.code==='PGRST204'||(e?.message||'').includes("'is_base' column of 'yd_catalog'");}
 function errorMessage(e){return isCatalogSchemaError(e)?'La base YiDream doit être mise à jour avant d’utiliser la boutique.':(['PGRST202','PGRST205','42P01','42703'].includes(e.code)?'La mise à jour du service MDM doit être activée par le responsable de votre espace.':(e.message||'Connexion impossible. Réessayez.'));}
@@ -76,6 +82,42 @@ function renderCatalog(){
  }
  resizeParent();
 }
+async function load(){hidePlayUpdates();isOwner=false;$('ownerImports').hidden=true;$('baseControl').hidden=true;const session=check(await db.auth.getSession()).session;$('login').hidden=!!session;if(!session){currentUser=null;uploaded=null;accountLoad++;clearAccountCode();$('appAccounts').replaceChildren();$('catalogEditor').close();$('workspace').hidden=true;$('account').textContent='Espace administrateur';status('Connectez-vous pour retrouver vos appareils.');return;}currentUser=session.user;const role=check(await db.from('platform_admins').select('role').eq('user_id',currentUser.id).maybeSingle());if(!role || check(await db.rpc('is_platform_admin'))!==true){$('catalogEditor').close();$('workspace').hidden=true;status('Ce compte ne dispose pas d’un accès administrateur.',true);return;}isOwner=role.role==='owner'&&check(await db.rpc('is_platform_owner'))===true;$('ownerImports').hidden=!isOwner;const result=await Promise.all([db.from('devices').select('id,name,user_id,client_id,configuration_status').order('name'),db.from('clients').select('id,name'),db.from('yd_site_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('yd_catalog').select('*').order('name')]);[devices,clients,requests,catalog]=result.map(check);const selected=$('devices').value;const readyDevices=devices.filter(d=>d.configuration_status==='configured');$('devices').replaceChildren(...readyDevices.map(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=deviceLabel(d,clients);return o;}));if(readyDevices.some(d=>d.id===selected))$('devices').value=selected;$('pair').disabled=!readyDevices.length;$('pairHint').textContent=accountCopy(readyDevices.length?'Le code donne accès uniquement au téléphone choisi.':'Aucun appareil configuré. Préparez un téléphone avant de créer son code.');const count=requests.filter(r=>r.status==='pending').length;$('pendingCount').textContent=count;$('navPending').textContent=count;$('navPending').hidden=!count;$('appCount').textContent=catalog.filter(a=>a.enabled&&releaseReady(a)).length;$('deviceCount').textContent=devices.length;$('requestTotal').textContent=requests.length+' demandes';$('catalogTotal').textContent=catalog.length+' applications';$('account').textContent=currentUser.email;$('baseControl').hidden=!isOwner;renderRequests();renderCatalog();renderPlayUpdates();$('workspace').hidden=false;showView(view);status('');}
+async function loadAppAccounts(){
+ const generation=++accountLoad;
+ const list=$('appAccounts'),message=$('appAccountsStatus');
+ message.textContent=accountCopy('Chargement des comptes…');
+ $('refreshAccounts').disabled=true;
+ try{
+  const rows=check(await db.rpc('yd_list_app_accounts'))||[];
+  if(generation!==accountLoad||!currentUser)return;
+  list.replaceChildren();
+  if(!rows.length)empty(list,'Aucun compte activé','Les utilisateurs apparaîtront ici après leur première activation.');
+  for(const account of rows){
+   const row=document.createElement('article');row.className='app-account-row';
+   const identity=document.createElement('div');identity.className='app-account-identity';
+   identity.append(text('strong',account.email),text('small',account.contact_phone),text('small',account.device_name||'Téléphone associé'));
+   const badges=document.createElement('div');badges.className='account-badges';
+   badges.append(text('span',account.is_active?'Actif':'Suspendu','pill '+(account.is_active?'approved':'revoked')),text('small',account.email_verified?'E-mail vérifié':'Activation par code administrateur'));
+   row.append(identity,badges);
+   if(account.can_manage===true){
+    const toggle=button(account.is_active?'Suspendre':'Réactiver',account.is_active?'danger':'secondary');
+    toggle.onclick=()=>task(toggle,async()=>{
+     const prompt=account.is_active?'Suspendre l’accès à l’application pour ce compte ? Le filtre installé restera actif.':'Réactiver l’accès à l’application pour ce compte ?';
+     if(!confirm(accountCopy(prompt)))return;
+     check(await db.rpc('yd_set_app_account_access',{target_account:account.id,enabled:!account.is_active}));
+     await loadAppAccounts();status('Accès au compte mis à jour.');
+    });row.append(toggle);
+   }
+   list.append(row);
+  }
+  message.textContent=accountCopy('Le filtre reste actif même lorsque le compte est déconnecté ou suspendu.');
+ }catch(error){
+  if(generation!==accountLoad)return;
+  list.replaceChildren();message.textContent=accountCopy(['PGRST202','PGRST205','42P01','42703'].includes(error.code)?'La gestion des comptes doit être activée dans Supabase. Les autres outils restent accessibles.':'Impossible de charger les comptes. Réessayez.');
+ }finally{if(generation===accountLoad){$('refreshAccounts').disabled=false;resizeParent();}}
+}
+$('refreshAccounts').onclick=()=>void loadAppAccounts();
 function hidePlayUpdates(){
  playCheckRun++;playAbort?.abort();playAbort=null;playChecking=false;playCheckResults.clear();
  $('playUpdates').hidden=true;$('playUpdateResults').replaceChildren();$('playUpdatesProgress').textContent='';
@@ -127,11 +169,11 @@ async function runPlayChecks(retry=false){
 }
 $('checkPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks());
 $('retryPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks(true));
-async function load(){hidePlayUpdates();isOwner=false;$('ownerImports').hidden=true;$('baseControl').hidden=true;const session=check(await db.auth.getSession()).session;$('login').hidden=!!session;if(!session){currentUser=null;uploaded=null;$('catalogEditor').close();$('workspace').hidden=true;$('account').textContent='Espace administrateur';status('Connectez-vous pour retrouver vos appareils.');return;}currentUser=session.user;const role=check(await db.from('platform_admins').select('role').eq('user_id',currentUser.id).maybeSingle());if(!role || check(await db.rpc('is_platform_admin'))!==true){$('catalogEditor').close();$('workspace').hidden=true;status('Ce compte ne dispose pas d’un accès administrateur.',true);return;}isOwner=role.role==='owner'&&check(await db.rpc('is_platform_owner'))===true;$('ownerImports').hidden=!isOwner;const result=await Promise.all([db.from('devices').select('id,name,user_id,client_id').order('name'),db.from('clients').select('id,name'),db.from('yd_site_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('yd_catalog').select('*').order('name')]);[devices,clients,requests,catalog]=result.map(check);const selected=$('devices').value;$('devices').replaceChildren(...devices.map(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=deviceLabel(d,clients);return o;}));if(devices.some(d=>d.id===selected))$('devices').value=selected;$('pair').disabled=!devices.length;const count=requests.filter(r=>r.status==='pending').length;$('pendingCount').textContent=count;$('navPending').textContent=count;$('navPending').hidden=!count;$('appCount').textContent=catalog.filter(a=>a.enabled&&releaseReady(a)).length;$('deviceCount').textContent=devices.length;$('requestTotal').textContent=requests.length+' demandes';$('catalogTotal').textContent=catalog.length+' applications';$('account').textContent=currentUser.email;$('baseControl').hidden=!isOwner;renderRequests();renderCatalog();renderPlayUpdates();$('workspace').hidden=false;showView(view);status('');}
 $('loginForm').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{check(await db.auth.signInWithPassword({email:$('email').value,password:$('password').value}));$('password').value='';await load();});};
 $('refresh').onclick=e=>task(e.currentTarget,load);$('viewRefresh').onclick=e=>task(e.currentTarget,load);$('catalogSearch').oninput=renderCatalog;$('requestSearch').oninput=renderRequests;$('requestFilter').onchange=renderRequests;
-$('pair').onclick=e=>task(e.target,async()=>{const code=check(await db.rpc('yd_create_pairing',{target_device:$('devices').value}));$('pairCode').textContent=code;$('pairResult').hidden=false;});
-$('devices').onchange=()=>{$('pairResult').hidden=true;$('pairCode').textContent='';};
+$('pair').onclick=e=>task(e.target,async()=>{clearAccountCode();const code=check(await db.rpc('yd_create_pairing',{target_device:$('devices').value}));$('pairCode').textContent=code;$('pairResult').hidden=false;codeExpiryTimer=setTimeout(()=>{clearAccountCode();status('Le code a expiré. Créez-en un nouveau si nécessaire.');},15*60*1000);});
+function clearAccountCode(){if(codeExpiryTimer)clearTimeout(codeExpiryTimer);codeExpiryTimer=null;$('pairResult').hidden=true;$('pairCode').textContent='';}
+$('devices').onchange=clearAccountCode;
 $('copyCode').onclick=e=>task(e.target,async()=>{await navigator.clipboard.writeText($('pairCode').textContent);status('Code copié.');});
 $('importPlay').onclick=e=>task(e.currentTarget,async()=>{const headers=await ownerHeaders();const pkg=parsePlayUrl($('playUrl').value);form.elements.package_name.value=pkg;form.elements.source_url.value='https://play.google.com/store/apps/details?id='+encodeURIComponent(pkg);const preset=BASE_APPS.find(a=>a.package_name===pkg);if(preset){form.elements.name.value=preset.name;form.elements.description.value=preset.description;form.elements.is_base.checked=isOwner;}let response;try{response=await fetch(GPLAY_API+'/api/info/'+encodeURIComponent(pkg),{headers,cache:'no-store',redirect:'error'});}catch(_){throw Error('Le service local ne répond pas. Démarrez-le selon le guide « Configurer le service ».');}const info=await response.json();if(!response.ok||info.error)throw Error(info.error||'Impossible de lire la fiche Google Play.');if(info.title&&info.title!==pkg)form.elements.name.value=info.title;if(info.developer&&info.developer!=='Unknown')form.elements.description.value='Éditeur : '+info.developer;status('Fiche Google Play reconnue. Cliquez sur « Télécharger l’APK » pour la préparer.');});
 $('downloadPlay').onclick=e=>task(e.currentTarget,async()=>{const headers=await ownerHeaders();const pkg=parsePlayUrl($('playUrl').value);form.elements.package_name.value=pkg;form.elements.source_url.value='https://play.google.com/store/apps/details?id='+encodeURIComponent(pkg);$('apkInfo').textContent='Téléchargement depuis Google Play…';let response;try{response=await fetch(GPLAY_API+'/api/download-merged/'+encodeURIComponent(pkg)+'?arch=arm64-v8a',{headers,cache:'no-store',redirect:'error'});}catch(_){throw Error('Le service Google Play local est introuvable. Consultez le guide de démarrage ci-dessous.');}const type=response.headers.get('content-type')||'';if(!response.ok||type.includes('application/json')){let detail='Téléchargement impossible. Vérifiez la connexion au service Google Play.';try{const payload=await response.json();detail=payload.error||detail;}catch(_){}throw Error(detail);}const blob=await response.blob();if(!blob.size)throw Error('Le service a renvoyé un fichier APK vide.');const file=new File([blob],pkg+'.apk',{type:'application/vnd.android.package-archive'});const metadata=await inspectApk(file);if(metadata.package_name!==pkg)throw Error('Le paquet de l’APK reçu ne correspond pas au lien Google Play.');uploaded={file,...metadata};for(const k of['package_name','version_code','version_name','sha256'])form.elements[k].value=metadata[k];if(!form.elements.name.value||form.elements.name.value===pkg)form.elements.name.value=BASE_APPS.find(a=>a.package_name===pkg)?.name||pkg;form.elements.apk_url.value='';$('apkInfo').textContent=`APK récupéré · version ${metadata.version_name} · ${(file.size/1048576).toFixed(1)} Mo · empreinte vérifiée. Vérifiez les avertissements avant publication.`;status('APK prêt. Vérifiez les informations, puis publiez-le dans la boutique YiDream.');});
