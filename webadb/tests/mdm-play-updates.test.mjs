@@ -50,3 +50,13 @@ test('Invalid sources are never fetched and cancellation stops later calls and s
   ()=>assert.fail('A result after cancellation must not enter the UI'),()=>active);
  assert.equal(calls,1);
 });
+
+
+test('Apps without a Play listing are skipped without a network call or retry failure',async()=>{
+ const apps=[app('missing',{source_url:null}),app('empty',{source_url:''}),app('spaces',{source_url:'  '}),app('valid')];
+ const fetched=[],results=[];
+ await checkPlayCatalog(apps,async current=>{fetched.push(current.id);return {versionCode:21};},
+  (current,result)=>results.push([current.id,result.kind,result.canPrepare]));
+ assert.deepEqual(fetched,['valid']);
+ assert.deepEqual(results,[['missing','skipped',false],['empty','skipped',false],['spaces','skipped',false],['valid','update',true]]);
+});

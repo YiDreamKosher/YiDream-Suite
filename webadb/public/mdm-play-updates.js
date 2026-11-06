@@ -46,6 +46,10 @@ export async function checkPlayCatalog(apps, fetchInfo, onResult, active = () =>
   for (const app of apps) {
     if (!active()) break;
     let result;
+    if (app.source_url == null || (typeof app.source_url === 'string' && !app.source_url.trim())) {
+      onResult(app, {kind: 'skipped', message: 'Aucune fiche Google Play associée. Cette application reste gérée par son fichier APK habituel.', canPrepare: false});
+      continue;
+    }
     try {
       const source = playSource(app);
       const info = await fetchInfo(app);

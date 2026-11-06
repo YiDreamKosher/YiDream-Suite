@@ -88,9 +88,9 @@ function renderPlayUpdates(){
   const result=playCheckResults.get(app.id);if(!result)continue;
   const row=document.createElement('article');row.className='play-update-row';
   const detail=document.createElement('div');detail.append(text('strong',app.name),text('small',app.package_name+(app.enabled?'':' · Masquée')));
-  const labels={update:'Nouvelle version signalée',current:'Même code de version que le catalogue',older:'Version Play inférieure au catalogue',prepare:'Première version à préparer',unconfirmed:'Version à confirmer dans l’APK',error:'Vérification impossible'};
+  const labels={update:'Nouvelle version signalée',current:'Même code de version que le catalogue',older:'Version Play inférieure au catalogue',prepare:'Première version à préparer',unconfirmed:'Version à confirmer dans l’APK',error:'Vérification impossible',skipped:'Sans fiche Google Play'};
   detail.append(text('span',labels[result.kind],'pill '+(result.kind==='current'?'approved':'pending')));
-  if(result.kind==='error')detail.append(text('p',result.message));
+  if(result.kind==='error'||result.kind==='skipped')detail.append(text('p',result.message));
   else detail.append(text('p',result.code==null?'Le fournisseur ne donne pas de code de version Android fiable. Téléchargez l’APK pour vérifier sa version.':
    `Google Play : ${result.name||'version non précisée'} (code ${result.code}) · Catalogue : ${result.publishedCode??'non publié'}`));
   row.append(detail);
