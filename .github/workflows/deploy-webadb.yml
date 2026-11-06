@@ -63,7 +63,7 @@ jobs:
           npm run build
 
       - name: Configurer GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Préparer l'artefact
         uses: actions/upload-pages-artifact@v3
