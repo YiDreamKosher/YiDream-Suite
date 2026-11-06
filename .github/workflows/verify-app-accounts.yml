@@ -1,0 +1,61 @@
+name: Verify app accounts and administration
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'webadb/**'
+      - '.github/workflows/verify-app-accounts.yml'
+      - '.github/workflows/deploy-webadb.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-app-accounts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the proposed changes
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Verify database isolation, activation and revocation
+        working-directory: webadb/supabase/tests
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
+      - name: Verify the web interface and build
+        working-directory: webadb
+        run: |
+          npm ci
+          node --test tests/*.test.mjs
+          python3 -m unittest discover -s tests -p 'owner_import_test.py'
+          npm audit --audit-level=high
+          npm run build
+
+      - name: Install the tested Deno runtime
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: '2.9.6'
+
+      - name: Verify application login email safeguards without production access
+        working-directory: webadb/supabase/functions/app-auth
+        run: deno test --frozen --allow-env handler.test.ts
+
+      - name: Verify administrator email safeguards without production access
+        working-directory: webadb/supabase/functions/application-mail
+        run: deno test --frozen --allow-env handler.test.ts
