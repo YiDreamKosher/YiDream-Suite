@@ -7,6 +7,6 @@
     "test": "node migration.test.mjs && node application.test.mjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.13"
+    "@electric-sql/pglite": "0.5.15"
   }
 }
