@@ -1,4 +1,4 @@
-import { handler } from './index.ts';
+import { handler } from './handler.ts';
 function assert(value:unknown,message='Assertion failed'){if(!value)throw Error(message);}
 Deno.env.set('SUPABASE_URL','https://example.supabase.co');Deno.env.set('SUPABASE_SERVICE_ROLE_KEY','test-service-role-not-a-real-key');Deno.env.delete('GMAIL_APP_PASSWORD');
 Deno.test('rejects anonymous requests before any mail configuration or database call',async()=>{const r=await handler(new Request('https://example.test',{method:'POST',body:'{}'}));assert(r.status===401);});
