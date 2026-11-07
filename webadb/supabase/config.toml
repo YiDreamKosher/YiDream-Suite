@@ -2,3 +2,8 @@
 # Handler auth.getUser verifies user tokens, including asymmetric signing keys.
 # Anonymous calls are rejected; the service-role bearer is reserved for the retry worker.
 verify_jwt = false
+
+[functions.app-auth]
+# Public passwordless login entrypoint. Service-only DB quotas are reserved before
+# generating an Auth OTP; existing administrator SMTP/Auth settings are not changed.
+verify_jwt = false
