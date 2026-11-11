@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady } from './mdm-model.js?v=20261030';
 import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261104';
-import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261106';
+import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261111';
 import { checkPlayCatalog } from './mdm-play-updates.js?v=20261106';
 import { inspectApk } from './mdm-apk.js?v=20261030';
 const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
@@ -10,6 +10,7 @@ const $=id=>document.getElementById(id),form=$('catalogForm');
 const accountLanguage=new URLSearchParams(location.search).get('lang')||localStorage.getItem('yidream-admin-language')||'en';
 const accountCopy=value=>accountText(value,accountLanguage);
 translateAccountPanel($('pairPanel'),accountLanguage);
+translateAccountPanel($('requestsPanel'),accountLanguage);
 let devices=[],clients=[],requests=[],catalog=[],currentUser=null,isOwner=false,uploaded=null;
 let accountLoad=0,codeExpiryTimer=null;
 let playCheckResults=new Map(),playCheckRun=0,playChecking=false,playAbort=null;
@@ -30,6 +31,7 @@ function showView(next){
   $('viewTitle').textContent=VIEWS[view];$('viewCaption').textContent=VIEWS[view];
   document.title='YiDream · '+VIEWS[view];resizeParent();
   if(view==='pair'&&currentUser)void loadAppAccounts();
+  else if(view!=='pair'&&currentUser)clearAccountCode();
 }
 function navigate(next){
   if(!Object.hasOwn(VIEWS,next))return;
@@ -61,7 +63,64 @@ function empty(parent,title,description){const box=document.createElement('div')
 function isCatalogSchemaError(e){return e?.code==='PGRST204'||(e?.message||'').includes("'is_base' column of 'yd_catalog'");}
 function errorMessage(e){return isCatalogSchemaError(e)?'La base YiDream doit être mise à jour avant d’utiliser la boutique.':(['PGRST202','PGRST205','42P01','42703'].includes(e.code)?'La mise à jour du service MDM doit être activée par le responsable de votre espace.':(e.message||'Connexion impossible. Réessayez.'));}
 async function task(b,operation){if(b)b.disabled=true;try{await operation();}catch(e){status(errorMessage(e),true,isCatalogSchemaError(e));}finally{if(b)b.disabled=false;}}
-function renderRequests(){const container=$('requests');container.replaceChildren();const filtered=requests.filter(r=>matchesRequest(r,deviceLabel(devices.find(d=>d.id===r.device_id)||{name:'Appareil'},clients),$('requestSearch').value,$('requestFilter').value));if(!filtered.length)empty(container,'Aucune demande à afficher','Les demandes de vos utilisateurs apparaîtront ici.');for(const request of filtered){const row=document.createElement('article');row.className='row';const heading=document.createElement('div');heading.className='request-heading';let name;try{name=new URL(request.site_url).hostname;}catch(_){name=request.site_url;}heading.append(text('strong',name),text('span',({pending:'En attente',approved:'Acceptée',rejected:'Refusée',revoked:'Révoquée'})[request.status]||request.status,'pill '+request.status));const device=devices.find(d=>d.id===request.device_id);row.append(heading,text('small',`${deviceLabel(device||{name:'Appareil'},clients)} · ${new Date(request.created_at).toLocaleString('fr')}`));if(request.reason)row.append(text('p',request.reason));if(request.admin_note)row.append(text('p',request.admin_note));if(['pending','approved','revoked'].includes(request.status)){const note=document.createElement('textarea');note.placeholder='Votre réponse à l’utilisateur (facultatif)';note.maxLength=2000;note.rows=2;note.setAttribute('aria-label','Réponse pour '+name);row.append(note);const actions=document.createElement('div');actions.className='row-actions';const choices=request.status==='pending'?[['approved','Accepter','primary'],['rejected','Refuser','ghost']]:request.status==='approved'?[['revoked','Révoquer l’autorisation','danger']]:[['approved','Réautoriser','secondary']];for(const[decision,label,kind]of choices){const b=button(label,kind);b.onclick=()=>task(b,async()=>{check(await db.rpc('yd_review_site',{request_id:request.id,decision,note:note.value}));await load();status(decision==='revoked'?'Autorisation révoquée. La décision sera visible sur le téléphone.':'Décision enregistrée.');});actions.append(b);}row.append(actions);}container.append(row);}}
+function renderRequests() {
+  const container = $('requests');
+  container.replaceChildren();
+  const filtered = requests.filter(request => matchesRequest(
+    request,
+    deviceLabel(devices.find(device => device.id === request.device_id) || { name: 'Appareil' }, clients),
+    $('requestSearch').value, $('requestFilter').value
+  ));
+  if (!filtered.length) empty(container, 'Aucune demande à afficher', 'Les demandes de vos utilisateurs apparaîtront ici.');
+  for (const request of filtered) {
+    const row = document.createElement('article');
+    row.className = 'row';
+    const heading = document.createElement('div');
+    heading.className = 'request-heading';
+    let name;
+    try { name = new URL(request.site_url).hostname; }
+    catch { name = request.site_url; }
+    const wantsAllow = request.requested_allowed !== false;
+    const labels = { pending: 'En attente', approved: 'Acceptée', rejected: 'Refusée', revoked: 'Révoquée' };
+    heading.append(text('strong', name), text('span', labels[request.status] || request.status, 'pill ' + request.status));
+    const device = devices.find(device => device.id === request.device_id);
+    row.append(heading, text('small', deviceLabel(device || { name: 'Appareil' }, clients) + ' · ' +
+      new Date(request.created_at).toLocaleString(accountLanguage)));
+    row.append(text('p', wantsAllow ? 'Demande d’autorisation' : 'Demande de blocage'));
+    if (request.reason) row.append(text('p', request.reason));
+    if (request.admin_note) row.append(text('p', request.admin_note));
+    const actions = [];
+    if (request.status === 'pending') {
+      actions.push(['approved', wantsAllow ? 'Autoriser le site' : 'Bloquer le site', 'primary']);
+      actions.push(['rejected', 'Refuser', 'ghost']);
+    } else if (wantsAllow && request.status === 'approved') {
+      actions.push(['revoked', 'Révoquer l’autorisation', 'danger']);
+    } else if (wantsAllow && request.status === 'revoked') {
+      actions.push(['approved', 'Réautoriser', 'secondary']);
+    }
+    if (actions.length) {
+      const note = document.createElement('textarea');
+      note.placeholder = accountCopy('Votre réponse à l’utilisateur (facultatif)');
+      note.maxLength = 2000;
+      note.rows = 2;
+      note.setAttribute('aria-label', note.placeholder);
+      row.append(note);
+      const actionBar = document.createElement('div');
+      actionBar.className = 'row-actions';
+      for (const [decision, label, kind] of actions) {
+        const action = button(label, kind);
+        action.onclick = () => task(action, async () => {
+          check(await db.rpc('yd_review_site', { request_id: request.id, decision, note: note.value }));
+          await load();
+          status('Décision enregistrée.');
+        });
+        actionBar.append(action);
+      }
+      row.append(actionBar);
+    }
+    container.append(row);
+  }
+}
 function fillApp(app){form.elements.name.value=app.name||'';form.elements.package_name.value=app.package_name||'';form.elements.description.value=app.description||'';for(const key of['source_url','version_name','version_code','apk_url','sha256'])form.elements[key].value=app[key]||'';form.elements.is_base.checked=!!app.is_base;form.dataset.editId=app.id||'';form.dataset.ownerId=app.owner_id||currentUser.id;uploaded=null;$('apkFile').value='';$('apkInfo').textContent='Importez une nouvelle APK pour publier une mise à jour.';$('editorTitle').textContent='Publier une version · '+app.name;openEditor();}
 function renderCatalog(){
  const container=$('catalog');container.replaceChildren();
@@ -82,7 +141,7 @@ function renderCatalog(){
  }
  resizeParent();
 }
-async function load(){hidePlayUpdates();isOwner=false;$('ownerImports').hidden=true;$('baseControl').hidden=true;const session=check(await db.auth.getSession()).session;$('login').hidden=!!session;if(!session){currentUser=null;uploaded=null;accountLoad++;clearAccountCode();$('appAccounts').replaceChildren();$('catalogEditor').close();$('workspace').hidden=true;$('account').textContent='Espace administrateur';status('Connectez-vous pour retrouver vos appareils.');return;}currentUser=session.user;const role=check(await db.from('platform_admins').select('role').eq('user_id',currentUser.id).maybeSingle());if(!role || check(await db.rpc('is_platform_admin'))!==true){$('catalogEditor').close();$('workspace').hidden=true;status('Ce compte ne dispose pas d’un accès administrateur.',true);return;}isOwner=role.role==='owner'&&check(await db.rpc('is_platform_owner'))===true;$('ownerImports').hidden=!isOwner;const result=await Promise.all([db.from('devices').select('id,name,user_id,client_id,configuration_status').order('name'),db.from('clients').select('id,name'),db.from('yd_site_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('yd_catalog').select('*').order('name')]);[devices,clients,requests,catalog]=result.map(check);const selected=$('devices').value;const readyDevices=devices.filter(d=>d.configuration_status==='configured');$('devices').replaceChildren(...readyDevices.map(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=deviceLabel(d,clients);return o;}));if(readyDevices.some(d=>d.id===selected))$('devices').value=selected;$('pair').disabled=!readyDevices.length;$('pairHint').textContent=accountCopy(readyDevices.length?'Le code donne accès uniquement au téléphone choisi.':'Aucun appareil configuré. Préparez un téléphone avant de créer son code.');const count=requests.filter(r=>r.status==='pending').length;$('pendingCount').textContent=count;$('navPending').textContent=count;$('navPending').hidden=!count;$('appCount').textContent=catalog.filter(a=>a.enabled&&releaseReady(a)).length;$('deviceCount').textContent=devices.length;$('requestTotal').textContent=requests.length+' demandes';$('catalogTotal').textContent=catalog.length+' applications';$('account').textContent=currentUser.email;$('baseControl').hidden=!isOwner;renderRequests();renderCatalog();renderPlayUpdates();$('workspace').hidden=false;showView(view);status('');}
+async function load(){hidePlayUpdates();isOwner=false;$('ownerImports').hidden=true;$('baseControl').hidden=true;const session=check(await db.auth.getSession()).session;$('login').hidden=!!session;if(!session){currentUser=null;uploaded=null;accountLoad++;clearAccountCode();$('appAccounts').replaceChildren();$('catalogEditor').close();$('workspace').hidden=true;$('account').textContent='Espace administrateur';status('Connectez-vous pour retrouver vos appareils.');return;}currentUser=session.user;const role=check(await db.from('platform_admins').select('role').eq('user_id',currentUser.id).maybeSingle());if(!role || check(await db.rpc('is_platform_admin'))!==true){clearAccountCode();$('catalogEditor').close();$('workspace').hidden=true;status('Ce compte ne dispose pas d’un accès administrateur.',true);return;}isOwner=role.role==='owner'&&check(await db.rpc('is_platform_owner'))===true;$('ownerImports').hidden=!isOwner;const result=await Promise.all([db.from('devices').select('id,name,user_id,client_id,configuration_status').order('name'),db.from('clients').select('id,name'),db.from('yd_site_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('yd_catalog').select('*').order('name')]);[devices,clients,requests,catalog]=result.map(check);const selected=$('devices').value;const readyDevices=devices.filter(d=>d.configuration_status==='configured');$('devices').replaceChildren(...readyDevices.map(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=deviceLabel(d,clients);return o;}));if(readyDevices.some(d=>d.id===selected))$('devices').value=selected;$('pair').disabled=!readyDevices.length;$('pairHint').textContent=accountCopy(readyDevices.length?'Le code donne accès uniquement au téléphone choisi.':'Aucun appareil configuré. Préparez un téléphone avant de créer son code.');const count=requests.filter(r=>r.status==='pending').length;$('pendingCount').textContent=count;$('navPending').textContent=count;$('navPending').hidden=!count;$('appCount').textContent=catalog.filter(a=>a.enabled&&releaseReady(a)).length;$('deviceCount').textContent=devices.length;$('requestTotal').textContent=requests.length+' demandes';$('catalogTotal').textContent=catalog.length+' applications';$('account').textContent=currentUser.email;$('baseControl').hidden=!isOwner;renderRequests();renderCatalog();renderPlayUpdates();$('workspace').hidden=false;showView(view);status('');}
 async function loadAppAccounts(){
  const generation=++accountLoad;
  const list=$('appAccounts'),message=$('appAccountsStatus');
@@ -171,7 +230,32 @@ $('checkPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks());
 $('retryPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks(true));
 $('loginForm').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{check(await db.auth.signInWithPassword({email:$('email').value,password:$('password').value}));$('password').value='';await load();});};
 $('refresh').onclick=e=>task(e.currentTarget,load);$('viewRefresh').onclick=e=>task(e.currentTarget,load);$('catalogSearch').oninput=renderCatalog;$('requestSearch').oninput=renderRequests;$('requestFilter').onchange=renderRequests;
-$('pair').onclick=e=>task(e.target,async()=>{clearAccountCode();const code=check(await db.rpc('yd_create_pairing',{target_device:$('devices').value}));$('pairCode').textContent=code;$('pairResult').hidden=false;codeExpiryTimer=setTimeout(()=>{clearAccountCode();status('Le code a expiré. Créez-en un nouveau si nécessaire.');},15*60*1000);});
+$('pairForm').onsubmit = event => {
+  event.preventDefault();
+  const action = $('pair');
+  if (action.disabled) return;
+  return task(action, async () => {
+    clearAccountCode();
+    const userId = currentUser?.id;
+    const target = $('devices').value;
+    const result = check(await db.rpc('yd_issue_app_activation', {
+      target_device: target,
+      contact_email: $('pairEmail').value.trim(),
+      contact_phone: $('pairPhone').value.trim().replace(/[\s().-]/g, '')
+    }));
+    const expires = Date.parse(result?.expires_at);
+    if (!/^[0-9a-f]{32}$/i.test(result?.code || '') || !(expires > Date.now())) {
+      throw new Error(accountCopy('Impossible de créer le code. Réessayez.'));
+    }
+    if (!currentUser || currentUser.id !== userId || view !== 'pair' || $('devices').value !== target) return;
+    $('pairCode').textContent = result.code;
+    $('pairResult').hidden = false;
+    codeExpiryTimer = setTimeout(() => {
+      clearAccountCode();
+      status('Le code a expiré. Créez-en un nouveau si nécessaire.');
+    }, Math.min(900_000, expires - Date.now()));
+  });
+};
 function clearAccountCode(){if(codeExpiryTimer)clearTimeout(codeExpiryTimer);codeExpiryTimer=null;$('pairResult').hidden=true;$('pairCode').textContent='';}
 $('devices').onchange=clearAccountCode;
 $('copyCode').onclick=e=>task(e.target,async()=>{await navigator.clipboard.writeText($('pairCode').textContent);status('Code copié.');});

@@ -1,7 +1,10 @@
 import { mountApplicationForm, applicationReviewMarkup } from './application-form.js';
 import './application-form.css';
 import * as cloud from './cloud-admin.js';
-import { renderAndroidWizard } from './ui-android.js';
+import { renderAndroidWizard, disposeAndroidWizard, disconnectAndroidWorkspace, knownAppPackages } from './ui-android.js';
+import { mountDeviceControls } from './device-controls.js';
+import { deviceCopy } from './device-control-copy.js';
+import './device-controls.css';
 import './admin-simple.css';
 import { runGate } from './gate.js';
 import logoUrl from '../assets/yidream-logo.png';
@@ -10,7 +13,7 @@ import { MDM_TITLES, mdmFrameSource, mdmViewFromHash, mdmPage, mdmViewForPage, t
 import './mdm-shell.css';
 const $=(s,r=document)=>r.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app=$('#app');
-const adminLanguage=localStorage.getItem('yidream-admin-language')||'fr';
+const adminLanguage=localStorage.getItem('yidream-admin-language')||'en';
 window.getLang=()=>adminLanguage;
 window.getAndroidUnlockMaterial=()=>cloud.getAndroidUnlockMaterial();
 const adminTranslations={
@@ -88,14 +91,49 @@ const deviceDetailStyle=document.createElement('style');deviceDetailStyle.textCo
 
 
 function androidLabels(){return adminLanguage==='fr'?{'Connect':'Connexion','Install YiDream':'Installer YiDream','Device Owner':'Administrateur de l’appareil','Configuration':'Configuration','Unlock & Apply':'Déverrouiller et appliquer','Advanced':'Avancé','Logs':'Journal','Settings':'Paramètres'}:adminLanguage==='he'?{'Connect':'חיבור','Install YiDream':'התקנת YiDream','Device Owner':'בעלים של המכשיר','Configuration':'הגדרה','Unlock & Apply':'פתיחה והחלה','Advanced':'מתקדם','Logs':'יומן','Settings':'הגדרות'}:adminLanguage==='yi'?{'Connect':'פֿאַרבינדן','Install YiDream':'ינסטאַלירן YiDream','Device Owner':'דיווייס באַזיצער','Configuration':'קאַנפֿיגוראַציע','Unlock & Apply':'עפֿענען און אָנווענדן','Advanced':'אַוואַנסירט','Logs':'לאָג','Settings':'סעטינגס'}:{}};
-function mountAndroidWorkspace(host){
- const source=state.platformRole==='owner'?state.ownerData:state.data;
- const device=source?.devices?.find(x=>x.id===state.selectedDeviceId);
- host.innerHTML=`${device?`<div class="setup-record"><span>Fiche associée : <b>${esc(device.name)}</b></span><button class="link" id="clearDeviceContext">Fermer cette fiche</button></div>`:''}<div id="androidWorkspace"></div>`;
- const clear=host.querySelector('#clearDeviceContext');if(clear)clear.onclick=()=>{state.selectedDeviceId=null;mountAndroidWorkspace(host)};
- renderAndroidWizard(host.querySelector('#androidWorkspace'));
+function mountAndroidWorkspace(host) {
+ const owner = state.platformRole === 'owner';
+ const source = owner ? state.ownerData : state.data;
+ const targetDevice = source?.devices?.find(device => device.id === state.selectedDeviceId);
+ host.innerHTML = '<div id="androidWorkspace"></div>';
+ renderAndroidWizard(host.querySelector('#androidWorkspace'), {
+  owner, targetDevice, language: adminLanguage, api: cloud, openRecord: openDeviceRecord
+ });
 }
-function openAndroidConfigurator(deviceId=null){clearMdmHash();runGate();if(typeof deviceId==='string'&&deviceId)state.selectedDeviceId=deviceId;if(state.platformRole==='owner'){state.ownerPage='android';renderOwnerPortal();return}state.page='android';state.tab='Tous';state.platformLabel='Android';state.platformMenus.Android=true;render()}
+
+function openAndroidConfigurator(deviceId = null) {
+ clearMdmHash();
+ runGate();
+ state.selectedDeviceId = typeof deviceId === 'string' ? deviceId : null;
+ if (state.platformRole === 'owner') {
+  state.ownerPage = 'android';
+  renderOwnerPortal();
+ } else {
+  state.page = 'android';
+  render();
+ }
+}
+
+async function openDeviceRecord(id) {
+ const owner = state.platformRole === 'owner';
+ const userId = state.session?.user?.id;
+ const data = await withTimeout(owner ? cloud.loadOwnerData() : cloud.loadData(), 'des appareils et clients');
+ if (state.session?.user?.id !== userId) return;
+ clearMdmHash();
+ state.selectedDeviceId = id;
+ if (owner) {
+  state.ownerData = data;
+  state.ownerPage = 'devices';
+  renderOwnerPortal();
+ } else {
+  state.data = data;
+  state.page = 'devices';
+  state.tab = 'Tous';
+  state.platformLabel = '';
+  render();
+ }
+}
+
 function portalHomeHref(){return 'https://yidreamkosher.github.io/YiDream/'}
 function appNavigation(){
  const page=state.platformRole==='owner'?state.ownerPage:state.page;
@@ -160,13 +198,14 @@ function shell(){
  $('#accountToggle').onclick=()=>{const b=$('#accountToggle'),m=$('#accountMenu'),open=m.classList.contains('hidden');m.classList.toggle('hidden',!open);b.setAttribute('aria-expanded',String(open))};
  $('#accountSettings').onclick=()=>{const p=state.data.profile;const overlay=document.createElement('div');overlay.id='accountSettingsDialog';overlay.style='position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:18px;background:#10244866';overlay.innerHTML='<section style="width:min(460px,100%);padding:24px;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:0 20px 60px #10244830"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2 style="margin:0;font-size:20px">Paramètres du compte</h2><button type="button" id="settingsClose" class="button" aria-label="Fermer">×</button></div><p style="color:var(--muted);margin:8px 0 18px">Modifiez les informations de votre compte revendeur.</p><div class="field"><label for="settingsShop">Nom de la boutique ou organisation</label><input id="settingsShop" value="'+esc(p.shop_name)+'"></div><div class="field" style="margin-top:14px"><label for="settingsEmail">Adresse e-mail</label><input id="settingsEmail" value="'+esc(state.session.user.email)+'" disabled></div><div class="field" style="margin-top:14px"><label for="settingsLanguage">Langue de l’espace administrateur</label><select id="settingsLanguage"><option value="fr">Français</option><option value="en">English</option><option value="he">עברית</option><option value="yi">ייִדיש</option></select></div><div class="actions" style="justify-content:flex-end;margin-top:20px"><button type="button" id="settingsCancel" class="button">Annuler</button><button type="button" id="settingsSave" class="button primary">Enregistrer</button></div><p id="settingsError" class="msg"></p></section>';document.body.append(overlay);translateAdminText(overlay);const language=overlay.querySelector('#settingsLanguage');language.value=adminLanguage;const close=()=>overlay.remove();overlay.querySelector('#settingsClose').onclick=close;overlay.querySelector('#settingsCancel').onclick=close;overlay.onclick=e=>{if(e.target===overlay)close()};overlay.querySelector('#settingsSave').onclick=async()=>{const name=overlay.querySelector('#settingsShop').value.trim();if(!name){overlay.querySelector('#settingsError').textContent='Saisissez un nom pour la boutique.';return}try{if(name!==p.shop_name){await cloud.updateShopName(name);state.data.profile.shop_name=name}localStorage.setItem('yidream-admin-language',language.value);location.reload()}catch(e){overlay.querySelector('#settingsError').textContent=errorText(e)}}};
 
- $('#logout').onclick=async()=>{await cloud.signOut();state.session=null;state.data=null;authScreen()};
+ $('#logout').onclick=async()=>{await disconnectAndroidWorkspace().catch(()=>{});await cloud.signOut();state.session=null;state.data=null;authScreen()};
  bindMdmNavigation();
  document.querySelectorAll('[data-platform-toggle]').forEach(b=>b.onclick=()=>{const name=b.dataset.platformToggle;state.platformMenus[name]=!state.platformMenus[name];render()});
  document.querySelectorAll('[data-platform-action]').forEach(b=>b.onclick=openAndroidConfigurator);document.querySelectorAll('[data-open-android]').forEach(b=>b.onclick=openAndroidConfigurator);
 }
 
 function renderOwnerPortal(){
+ if(state.ownerPage!=='android')disposeAndroidWizard();
  const d=state.ownerData||{applications:[],admins:[],stores:[],clients:[],devices:[],logs:[]};
  const tabs=[['dashboard','Accueil'],['yzmdm','Statistiques YZ MDM'],['applications','Candidatures'],['admins','Administrateurs'],['stores','Magasins'],['clients','Clients'],['devices','Appareils']];
  const ownerNavButton=([key,label])=>`<button data-owner-page="${key}" class="${state.ownerPage===key?'active':''}">${label}</button>`;
@@ -191,18 +230,28 @@ function renderOwnerPortal(){
  }else if(state.ownerPage==='clients'){
   body=`<section class="panel"><h2>Tous les clients</h2><div class="table-wrap"><table class="table"><thead><tr><th>Client</th><th>Groupe</th><th>Magasin</th><th></th></tr></thead><tbody>${d.clients.map(x=>{const store=d.stores.find(s=>s.user_id===x.user_id);return `<tr><td>${esc(x.name)}</td><td>${esc(x.group_name||'—')}</td><td>${esc(store?.shop_name||x.user_id)}</td><td><button class="link" data-client-remove="${x.id}">Retirer</button></td></tr>`}).join('')||'<tr><td colspan="4">Aucun client.</td></tr>'}</tbody></table></div></section>`;
  }else{
-  body=`<section class="panel"><div class="panel-head"><h2>Appareils et préparation</h2><button class="link" data-open-android>Ouvrir l’outil Android →</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Appareil</th><th>Plateforme</th><th>Magasin</th><th>Préparation</th><th></th></tr></thead><tbody>${d.devices.map(x=>{const store=d.stores.find(s=>s.user_id===x.user_id);const ready=x.configuration_status==='configured';return `<tr><td>${esc(x.name)}</td><td>${esc(x.platform)}</td><td>${esc(store?.shop_name||x.user_id)}</td><td>${ready?'Configuré':'À configurer'}</td><td><button class="link" data-device-ready="${x.id}" data-ready="${ready?'false':'true'}">${ready?'Rouvrir':'Marquer configuré'}</button></td></tr>`}).join('')||'<tr><td colspan="5">Aucun appareil enregistré.</td></tr>'}</tbody></table></div><div class="notice">Les appareils sont ajoutés avec le statut « à configurer ». Seul le propriétaire peut les marquer configurés après la préparation physique via l’outil Android.</div></section>`;
+  body=ownerDeviceList(d);
  }
  if(mdmView==='home')body=welcomeMarkup()+mdmFrameMarkup('home')+`<section class="suite-owner-summary"><span>Gestion propriétaire</span><div><button class="link" data-owner-page="applications">${d.applications.filter(x=>x.status==='pending').length} candidatures en attente →</button><button class="link" data-owner-page="admins">Gérer les administrateurs →</button></div></section>`;
  app.innerHTML=`<div class="shell"><aside class="side"><div class="brand"><img src="${adminLogoUrl}" alt="Logo YiDream Admin">YiDream <span class="suite-word">Suite</span></div><div class="workspace">Console propriétaire</div><nav class="nav">${tabButtons}</nav>${appNavigation()}${ownerManagement}<div class="side-bottom"><div class="account-copy"><b>${esc(state.session?.user?.email||'Propriétaire')}</b><small>Gestion globale YiDream</small></div><button id="ownerLogout" class="logout-button" style="margin-top:12px">Se déconnecter</button></div></aside><main class="main"><header class="topbar"><span class="crumb">YiDream Suite / <b>${mdmView?MDM_TITLES[mdmView]:state.ownerPage==='android'?'Configurer un téléphone':tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration'}</b></span><div class="top-actions"><span class="role">PROPRIÉTAIRE</span><span class="hebrew-decor" dir="rtl" lang="he" aria-hidden="true">בס״ד</span></div></header><section class="content owner-content ${mdmView==='home'?'owner-content-home':''}">${mdmView||state.ownerPage==='android'?'':head(tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration','')}${body}</section></main></div>`;
  document.querySelectorAll('[data-owner-page]').forEach(b=>b.onclick=()=>{if(b.dataset.ownerPage==='dashboard'){navigateMdm('home');return}clearMdmHash();state.ownerPage=b.dataset.ownerPage;renderOwnerPortal()});document.querySelectorAll('[data-open-android]').forEach(b=>b.onclick=openAndroidConfigurator);if(state.ownerPage==='android')mountAndroidWorkspace($('#ownerAndroidWorkspace'));
- $('#ownerLogout').onclick=async()=>{await cloud.signOut();state.session=null;state.data=null;state.ownerData=null;publicPortal()};
+ $('#ownerLogout').onclick=async()=>{await disconnectAndroidWorkspace().catch(()=>{});await cloud.signOut();state.session=null;state.data=null;state.ownerData=null;publicPortal()};
  document.querySelectorAll('[data-review]').forEach(b=>b.onclick=async()=>{try{await cloud.reviewAdminApplication(b.dataset.id,b.dataset.review==='approve');await reloadOwner()}catch(e){notify(errorText(e))}});
  document.querySelectorAll('[data-application-mail]').forEach(button=>{const id=button.dataset.applicationMail;const status=document.getElementById('mail-'+id);const update=async()=>{const rows=await cloud.applicationEmailStatus(id);if(status)status.textContent=rows?.some(x=>x.event===button.dataset.applicationStatus&&x.status==='sent')?'Message de suivi envoyé':'Message de suivi en attente';};update();button.onclick=async()=>{button.disabled=true;try{await cloud.sendApplicationEmail(id);await update();}finally{button.disabled=false;}};});
  document.querySelectorAll('[data-admin-access]').forEach(b=>b.onclick=async()=>{const enabled=b.dataset.enabled==='true';if(enabled&&!confirm('Rétablir l’accès administrateur de ce compte ?'))return;if(!enabled&&!confirm('Suspendre l’accès administrateur de ce compte ? Ses données seront conservées.'))return;try{await cloud.setPlatformAdminAccess(b.dataset.adminAccess,enabled);await reloadOwner()}catch(e){notify(errorText(e))}});
  document.querySelectorAll('[data-store-edit]').forEach(b=>b.onclick=async()=>{const store=d.stores.find(x=>x.user_id===b.dataset.storeEdit);const name=prompt('Nouveau nom de la boutique',store?.shop_name||'');if(name?.trim())try{await cloud.updateStoreName(b.dataset.storeEdit,name);await reloadOwner()}catch(e){notify(errorText(e))}});
  document.querySelectorAll('[data-client-remove]').forEach(b=>b.onclick=async()=>{if(confirm('Retirer ce client ?'))try{await cloud.removeClient(b.dataset.clientRemove);await reloadOwner()}catch(e){notify(errorText(e))}});
  document.querySelectorAll('[data-device-ready]').forEach(b=>b.onclick=async()=>{try{await cloud.setDeviceConfigured(b.dataset.deviceReady,b.dataset.ready==='true');await reloadOwner()}catch(e){notify(errorText(e))}});
+ if (state.ownerPage === 'devices') {
+  document.querySelectorAll('[data-device-detail]').forEach(button => {
+   button.onclick = () => {
+    state.selectedDeviceId = button.dataset.deviceDetail;
+    renderOwnerPortal();
+   };
+  });
+  bindDeviceDetails(d, () => renderOwnerPortal(), reloadOwner);
+  bindDeviceSearch();
+ }
  bindMdmNavigation();
  if(state.ownerPage==='yzmdm') loadYzMdmDashboard($('#yzMdmStats'),d);
 }
@@ -302,6 +351,7 @@ async function reloadOwner(){state.ownerData=await withTimeout(cloud.loadOwnerDa
 function head(title,sub,action=''){return `<div class="heading"><div><h1>${title}</h1><p>${sub}</p></div>${action}</div>`}
 function render(){
  if(!state.data)return;
+ if(state.page!=='android')disposeAndroidWizard();
  shell();const c=$('#content'),d=state.data;
  const mdmView=mdmViewForPage(state.page);if(mdmView&&mdmView!=='home'){c.innerHTML=(mdmView==='home'?welcomeMarkup():'')+mdmFrameMarkup(mdmView);return}
  if(state.page==='android'){c.innerHTML='<div id="androidHost"></div>';mountAndroidWorkspace($('#androidHost'));return}
@@ -319,22 +369,131 @@ function deviceRow(x){
  return `<div class="device-row"><div class="device-name"><span class="device-icon">${icon}</span><span><b>${esc(x.name)}</b><small>${esc(x.platform)} · ${cl?esc(cl.name):'Sans client'} · ${x.configuration_status==='configured'?'Configuré':'À configurer'}</small></span></div><span class="cell">${cl?esc(cl.name):'Sans client'}</span><span class="badge">${esc(x.platform)}</span><span class="cell">${new Date(x.created_at).toLocaleDateString('fr-FR')}</span></div>`;
 }
 function deviceStatusText(device){return device.configuration_status==='configured'?'Configuré par le propriétaire':device.configuration_status==='needs_configuration'?'En attente de préparation':'État de préparation non renseigné'}
-function renderDeviceDetails(device,d){
- const client=d.clients.find(x=>x.id===device.client_id);
- const status=device.configuration_status==='configured'?'Configuré par le propriétaire':device.configuration_status==='needs_configuration'?'En attente de préparation':'Non renseigné';
- return `<section class="panel device-detail-card"><div class="device-detail-head"><div><small>FICHE APPAREIL</small><h2>${esc(device.name)}</h2><p>${esc(device.platform)} · Ajouté le ${new Date(device.created_at).toLocaleDateString('fr-FR')}</p></div><button type="button" class="link" data-close-device-detail>Fermer</button></div><div class="device-detail-grid"><div><small>ÉTAT DE PRÉPARATION</small><b>${esc(status)}</b></div><div><small>CLIENT ASSOCIÉ</small><b>${client?esc(client.name):'Aucun client associé'}</b></div><div class="device-detail-note"><small>NOTE INTERNE</small><p>${device.note?esc(device.note):'Aucune note enregistrée.'}</p></div></div><div class="device-detail-footer"><p>Cette fiche confirme l’état enregistré dans YiDream. La présence ou la connexion USB de l’appareil n’est pas vérifiée en direct.</p><div>${device.platform==='Android'?'<button type="button" class="button primary" data-configure-device="'+device.id+'">Ouvrir la configuration Android</button>':''}<button type="button" class="button" data-remove-detail="${device.id}">Retirer la fiche</button></div></div></section>`;
+function ownerDeviceList(data) {
+ const selected = data.devices.find(device => device.id === state.selectedDeviceId);
+ const rows = data.devices.map(device => {
+  const store = data.stores.find(store => store.user_id === device.user_id);
+  const ready = device.configuration_status === 'configured';
+  return `<tr data-device-search="${esc(device.name + ' ' + device.id)}"><td><button type="button" class="link" data-device-detail="${esc(device.id)}">${esc(device.name)}</button></td>
+    <td>${esc(device.platform)}</td><td>${esc(store?.shop_name || device.user_id)}</td>
+    <td>${esc(deviceStatusText(device))}</td>
+    <td>${ready ? `<button class="link" data-device-ready="${esc(device.id)}" data-ready="false">${deviceCopy(adminLanguage, 'revokeApproval')}</button>` : ''}</td></tr>`;
+ }).join('');
+ return `<section class="panel">
+  <div class="panel-head"><h2>Appareils et préparation</h2>
+    <button class="link" data-open-android>Configurer un téléphone</button></div>
+  ${deviceSearchInput()}
+  <div id="deviceDetail">${selected ? renderDeviceDetails(selected, data) : ''}</div>
+  <div class="table-wrap"><table class="table">
+   <thead><tr><th>Appareil</th><th>Plateforme</th><th>Magasin</th><th>Préparation</th><th></th></tr></thead>
+   <tbody>${rows || '<tr><td colspan="5">Aucun appareil enregistré.</td></tr>'}</tbody>
+  </table></div></section>`;
+}
+
+function deviceSearchInput() {
+ const label = deviceCopy(adminLanguage, 'findDevice');
+ return `<input class="search device-search" type="search" id="search" aria-label="${esc(label)}"
+  placeholder="${esc(label)}" value="${esc(state.deviceQuery)}">`;
+}
+
+function bindDeviceSearch() {
+ const input = $('#search');
+ if (!input) return;
+ const update = () => {
+  state.deviceQuery = input.value;
+  const query = input.value.trim().toLowerCase();
+  document.querySelectorAll('[data-device-search]').forEach(row => {
+   row.hidden = !row.dataset.deviceSearch.toLowerCase().includes(query);
+  });
+ };
+ input.addEventListener('input', update);
+ update();
+}
+
+function renderDeviceDetails(device) {
+ const isAndroid = device.platform === 'Android';
+ const copy = key => deviceCopy(adminLanguage, key);
+ const canApprove = isAndroid && state.platformRole === 'owner' && device.configuration_status !== 'configured';
+ return `<section class="panel device-detail-card">
+  <div class="device-detail-head">
+   <div><small>FICHE APPAREIL</small><h2>${esc(device.name)}</h2><p>${esc(device.platform)} · ${esc(deviceStatusText(device))}</p></div>
+   <button type="button" class="link" data-close-device-detail>Fermer</button>
+  </div>
+  <div class="device-record-id"><small>${copy('deviceId')}</small>
+   <div class="setup-id"><code dir="ltr">${esc(device.id)}</code>
+    <button type="button" class="button" data-copy-device-id>${copy('copy')}</button></div>
+  </div>
+  ${device.note ? `<div class="device-note"><small>NOTE INTERNE</small><p>${esc(device.note)}</p></div>` : ''}
+  <div data-device-controls></div>
+  ${canApprove ? `<p class="small">${copy('approvalHint')}</p>
+    <button type="button" class="button primary" data-approve-record>${copy('approval')}</button>` : ''}
+  <div class="device-detail-footer">
+   <div>${isAndroid ? `<button type="button" class="button" data-configure-device="${esc(device.id)}">Ouvrir la configuration Android</button>` : ''}
+   <button type="button" class="button" data-remove-detail="${esc(device.id)}">Retirer la fiche</button></div>
+  </div>
+ </section>`;
+}
+
+function bindDeviceDetails(data, rerender, reload) {
+ const detail = $('#deviceDetail');
+ const device = data.devices.find(device => device.id === state.selectedDeviceId);
+ if (!detail || !device) return;
+ const copy = key => deviceCopy(adminLanguage, key);
+ mountDeviceControls(detail.querySelector('[data-device-controls]'), {
+  device, clients: data.clients, language: adminLanguage, packages: knownAppPackages, api: cloud,
+  onAssignment(clientId) {
+   const cell = Array.from(document.querySelectorAll('[data-device-client]'))
+    .find(element => element.dataset.deviceClient === device.id);
+   if (cell) cell.textContent = data.clients.find(client => client.id === clientId)?.name || '—';
+  }
+ });
+ detail.querySelector('[data-copy-device-id]').onclick = async event => {
+  const button = event.currentTarget;
+  try {
+   await navigator.clipboard.writeText(device.id);
+   button.textContent = copy('copied');
+  } catch {
+   const range = document.createRange();
+   range.selectNodeContents(button.previousElementSibling);
+   const selection = window.getSelection();
+   selection.removeAllRanges();
+   selection.addRange(range);
+  }
+ };
+ detail.querySelector('[data-close-device-detail]').onclick = () => {
+  state.selectedDeviceId = null;
+  rerender();
+ };
+ const approve = detail.querySelector('[data-approve-record]');
+ if (approve) approve.onclick = async () => {
+  approve.disabled = true;
+  try {
+   await cloud.setDeviceConfigured(device.id, true);
+   await reload();
+  } catch (error) { notify(errorText(error)); }
+  finally { approve.disabled = false; }
+ };
+ const setup = detail.querySelector('[data-configure-device]');
+ if (setup) setup.onclick = () => openAndroidConfigurator(device.id);
+ detail.querySelector('[data-remove-detail]').onclick = async () => {
+  if (!confirm('Retirer cette fiche ?')) return;
+  try {
+   await cloud.removeDevice(device.id);
+   state.selectedDeviceId = null;
+   await reload();
+  } catch (error) { notify(errorText(error)); }
+ };
 }
 function renderDevices(c,d){
- let rows=d.devices.filter(x=>(state.tab==='Tous'||x.platform===state.tab)&&(!state.deviceQuery||`${x.name} ${x.platform}`.toLowerCase().includes(state.deviceQuery)));
+ const rows=d.devices.filter(x=>state.tab==='Tous'||x.platform===state.tab);
  const selected=d.devices.find(x=>x.id===state.selectedDeviceId);
- c.innerHTML=head(state.platformLabel||'Appareils','Appareils inscrits dans votre espace revendeur.', '<button class="button primary" id="add">＋ Ajouter un appareil</button>')+`<div class="panel"><div class="tabs">${['Tous','Android','iOS','macOS','Windows','Other'].map(x=>`<button data-tab="${x}" class="${state.tab===x?'active':''}">${x} ${x==='Tous'?d.devices.length:d.devices.filter(z=>z.platform===x).length}</button>`).join('')}</div><div class="actions" style="margin-bottom:14px"><input class="search" id="search" placeholder="Rechercher un appareil…" value="${esc(state.deviceQuery)}"></div><div id="form"></div><div id="deviceDetail">${selected?renderDeviceDetails(selected,d):''}</div><div class="table-wrap">${rows.length?`<table class="table"><thead><tr><th>Appareil</th><th>Plateforme</th><th>Client</th><th>Préparation</th><th>Ajouté</th><th></th></tr></thead><tbody>${rows.map(x=>{const cl=d.clients.find(y=>y.id===x.client_id);return `<tr><td><button type="button" class="link" data-device-detail="${x.id}">${esc(x.name)}</button></td><td>${esc(x.platform)}</td><td>${cl?esc(cl.name):'—'}</td><td>${esc(deviceStatusText(x))}</td><td>${new Date(x.created_at).toLocaleDateString('fr-FR')}</td><td><button class="link" data-remove="${x.id}">Retirer</button></td></tr>`}).join('')}</tbody></table>`:'<div class="empty">Aucun appareil correspondant.</div>'}</div><div class="notice">L’état de préparation est validé par le propriétaire YiDream. La présence et la connexion USB ne sont pas détectées depuis cette liste.</div></div>`;
- $('#search').oninput=e=>{state.deviceQuery=e.target.value;renderDevices($('#content'),state.data)};
+ c.innerHTML=head(state.platformLabel||'Appareils','Appareils inscrits dans votre espace revendeur.', '<button class="button primary" id="add">＋ Ajouter un appareil</button>')+`<div class="panel"><div class="tabs">${['Tous','Android','iOS','macOS','Windows','Other'].map(x=>`<button data-tab="${x}" class="${state.tab===x?'active':''}">${x} ${x==='Tous'?d.devices.length:d.devices.filter(z=>z.platform===x).length}</button>`).join('')}</div><div class="actions" style="margin-bottom:14px">${deviceSearchInput()}</div><div id="form"></div><div id="deviceDetail">${selected?renderDeviceDetails(selected,d):''}</div><div class="table-wrap">${rows.length?`<table class="table"><thead><tr><th>Appareil</th><th>Plateforme</th><th>Client</th><th>Préparation</th><th>Ajouté</th><th></th></tr></thead><tbody>${rows.map(x=>{const cl=d.clients.find(y=>y.id===x.client_id);return `<tr data-device-search="${esc(x.name + ' ' + x.id)}"><td><button type="button" class="link" data-device-detail="${x.id}">${esc(x.name)}</button></td><td>${esc(x.platform)}</td><td data-device-client="${esc(x.id)}">${cl?esc(cl.name):'—'}</td><td>${esc(deviceStatusText(x))}</td><td>${new Date(x.created_at).toLocaleDateString('fr-FR')}</td><td><button class="link" data-remove="${x.id}">Retirer</button></td></tr>`}).join('')}</tbody></table>`:'<div class="empty">Aucun appareil correspondant.</div>'}</div><div class="notice">L’état de préparation est validé par le propriétaire YiDream. La présence et la connexion USB ne sont pas détectées depuis cette liste.</div></div>`;
+ bindDeviceSearch();
  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;state.platformLabel=state.tab==='Tous'?'':state.tab;render()});
  $('#add').onclick=()=>deviceForm(d);
  document.querySelectorAll('[data-device-detail]').forEach(b=>b.onclick=()=>{state.selectedDeviceId=b.dataset.deviceDetail;renderDevices($('#content'),state.data)});
- const close=$('[data-close-device-detail]');if(close)close.onclick=()=>{state.selectedDeviceId=null;renderDevices($('#content'),state.data)};
- document.querySelectorAll('[data-configure-device]').forEach(b=>b.onclick=()=>openAndroidConfigurator(b.dataset.configureDevice));
- document.querySelectorAll('[data-remove],[data-remove-detail]').forEach(b=>b.onclick=async()=>{const id=b.dataset.remove||b.dataset.removeDetail;if(confirm('Retirer cette fiche ?'))try{await cloud.removeDevice(id);state.selectedDeviceId=null;await refresh()}catch(e){notify(errorText(e))}});
+ bindDeviceDetails(d, () => renderDevices($('#content'), state.data), refresh);
+ document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{const id=b.dataset.remove;if(confirm('Retirer cette fiche ?'))try{await cloud.removeDevice(id);state.selectedDeviceId=null;await refresh()}catch(e){notify(errorText(e))}});
 }
 function deviceForm(d){const el=$('#form');el.innerHTML=`<div class="panel"><div class="form"><div class="field"><label>Nom de l’appareil</label><input id="deviceName" placeholder="Ex. Galaxy A15"></div><div class="field"><label>Plateforme</label><select id="platform"><option>Android</option><option>iOS</option><option>macOS</option><option>Windows</option><option>Other</option></select></div><div class="field"><label>Client (facultatif)</label><select id="client"><option value="">—</option>${d.clients.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div><div class="field"><label>Note</label><input id="note" placeholder="Note interne"></div></div><div class="notice">Après l’inscription, l’appareil restera en attente jusqu’à sa configuration physique et à sa validation par le propriétaire YiDream.</div><div class="actions" style="margin-top:14px"><button id="save" class="button primary">Enregistrer</button><button id="cancel" class="button">Annuler</button></div></div>`;
  $('#cancel').onclick=()=>el.innerHTML='';$('#save').onclick=async()=>{try{const name=$('#deviceName').value.trim();if(!name)throw Error('Saisissez un nom pour l’appareil.');await cloud.addDevice({name,platform:$('#platform').value,clientId:$('#client').value,note:$('#note').value});await refresh()}catch(e){notify(errorText(e))}}
@@ -354,7 +513,7 @@ function suspendedScreen(){
 let accessWatchStarted=false;
 function watchAdminAccess(){
  if(accessWatchStarted)return;accessWatchStarted=true;
- window.setInterval(async()=>{if(!state.session||state.platformRole!=='admin')return;try{const role=await cloud.platformRole();if(role!=='admin'){state.platformRole='suspended';try{await cloud.signOut()}catch{}state.session=null;state.data=null;suspendedScreen()}}catch(error){console.warn('Vérification des droits administrateur indisponible',error)}},30000);
+ window.setInterval(async()=>{if(!state.session||state.platformRole!=='admin')return;try{const role=await cloud.platformRole();if(role!=='admin'){state.platformRole='suspended';await disconnectAndroidWorkspace().catch(()=>{});try{await cloud.signOut()}catch{}state.session=null;state.data=null;suspendedScreen()}}catch(error){console.warn('Vérification des droits administrateur indisponible',error)}},30000);
 }
 async function start(){
  try{

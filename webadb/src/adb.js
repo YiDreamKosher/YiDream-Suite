@@ -47,13 +47,17 @@ export class YiDreamAdb {
       connection,
       credentialStore: this.credentialStore,
     });
-    this.adb = new Adb(transport);
-    this.adb.disconnected.then(() => {
+    const adb = new Adb(transport);
+    this.adb = adb;
+    adb.disconnected.then(() => {
+      if (this.adb !== adb) return;
       this.adb = null;
       this.info = null;
       this.onDisconnect();
     });
-    this.info = await this.readInfo();
+    const info = await this.readInfo();
+    if (this.adb !== adb) throw new Error('NOT_CONNECTED');
+    this.info = info;
     return this.info;
   }
 
@@ -110,10 +114,14 @@ export class YiDreamAdb {
   // Envoie yidream_config.json : lance l'app (crée le dossier), écrit le fichier, relance l'app.
   async applyConfig(config, onStep = () => {}) {
     const adb = this.require();
+    const connected = () => {
+      if (this.adb !== adb) throw new Error('NOT_CONNECTED');
+    };
     const launch = ['monkey', '-p', CONFIG.appPackage, '-c', 'android.intent.category.LAUNCHER', '1'];
     onStep('launching');
     await this.sh(launch);
     await sleep(2000);
+    connected();
     onStep('sending');
     const sync = await adb.sync();
     try {
@@ -122,9 +130,44 @@ export class YiDreamAdb {
     } finally {
       await sync.dispose();
     }
+    connected();
     onStep('relaunching');
     await this.sh(['am', 'force-stop', CONFIG.appPackage]);
+    connected();
     await this.sh(launch);
+  }
+
+  async confirmConfiguration(serial) {
+    const adb = this.require();
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      if (this.adb !== adb || this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
+      const result = await this.sh(['ls', '-d', CONFIG.configRemotePath]);
+      if (this.adb !== adb || this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
+      if (result.exitCode !== 0 && /No such file or directory/i.test(result.out)) return;
+      await sleep(500);
+    }
+    throw new Error('CONFIGURATION_NOT_CONFIRMED');
+  }
+
+  async sendActivationCode(code, serial) {
+    const adb = this.require();
+    if (this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
+    if (!/^[0-9a-f]{32}$/i.test(code)) throw new Error('INVALID_ACCOUNT_CODE');
+    let result;
+    try {
+      result = await this.sh([
+        'am', 'start', '-W', '-n', CONFIG.appPackage + '/.UsbActivationActivity',
+        '--es', 'yidream_activation_code', code
+      ]);
+    } catch {
+      throw new Error('ACTIVATION_USB_FAILED');
+    }
+    if (this.adb !== adb || this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
+    if ((result.exitCode !== 0 && result.exitCode !== null) ||
+        /(?:Error|Exception):|Status:\s*timeout/i.test(result.out) ||
+        (result.exitCode === null && !/Status:\s*ok/i.test(result.out))) {
+      throw new Error('ACTIVATION_USB_FAILED');
+    }
   }
 
   removeAdmin() {

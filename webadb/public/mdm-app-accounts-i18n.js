@@ -1,13 +1,26 @@
 // Account controls inherit the language chosen inside the signed-in Suite.
 const copy = {
+ 'Choisissez un appareil approuvé, renseignez ses coordonnées et partagez le code d’activation.': ['Choose an approved device, enter the contact details and share the activation code.','בחרו מכשיר שאושר, הזינו פרטי קשר ושתפו את קוד ההפעלה.','קלײַבט אַ באַשטעטיקטן דיווייס, לייגט אַרײַן די קאָנטאַקט אינפֿאָרמאַציע און טיילט דעם אַקטיוויזירונג־קאָד.'],
+ 'L’activation remplace l’accès précédent de ce téléphone. Les coordonnées servent au contact.': ['Activation replaces the previous access for this phone. The details are used to contact the user.','ההפעלה מחליפה את הגישה הקודמת לטלפון. הפרטים משמשים ליצירת קשר.','די אַקטיוויזירונג פֿאַרבײַט דעם פֿריִערדיקן צוטריט פֿאַר דעם טעלעפֿאָן. די אינפֿאָרמאַציע דינט צו קאָנטאַקטירן.'],
+ 'E-mail de contact': ['Contact email','דוא״ל ליצירת קשר','קאָנטאַקט אימעיל'],
+ 'Téléphone de contact': ['Contact phone','טלפון ליצירת קשר','קאָנטאַקט טעלעפֿאָן'],
+ 'Impossible de créer le code. Réessayez.': ['The code could not be created. Try again.','לא ניתן ליצור קוד. נסו שוב.','מען קען נישט שאַפֿן דעם קאָד. פּרובירט ווידער.'],
+ 'Demande d’autorisation': ['Request to allow','בקשת אישור','בקשה צו דערלויבן'],
+ 'Demande de blocage': ['Request to block','בקשת חסימה','בקשה צו בלאָקירן'],
+ 'Autoriser le site': ['Allow website','אישור האתר','דערלויבן די וועבזײַט'],
+ 'Bloquer le site': ['Block website','חסימת האתר','בלאָקירן די וועבזײַט'],
+ 'Refuser': ['Reject','דחייה','אָפּזאָגן'],
+ 'Révoquer l’autorisation': ['Withdraw access','ביטול ההרשאה','צוריקציען צוטריט'],
+ 'Réautoriser': ['Allow again','אישור מחדש','דערלויבן ווידער'],
+ 'Décision enregistrée.': ['Decision saved.','ההחלטה נשמרה.','די באַשלוס איז געראַטעוועט.'],
+ 'Votre réponse à l’utilisateur (facultatif)': ['Reply to the user (optional)','תשובה למשתמש (רשות)','ענטפֿער צום באַניצער (אָפּציאָנעל)'],
+ 'Les décisions s’appliquent dans le navigateur YiDream lors de la prochaine synchronisation du téléphone.': ['Decisions take effect in the YiDream browser when the phone next synchronizes.','ההחלטות יחולו בדפדפן YiDream בסנכרון הבא של הטלפון.','די באַשלוסן ווערן אָנווענדט אין דעם YiDream בלעטערער בײַם קומענדיקן סינקראָניזירן.'],
  'ACCÈS À L’APPLICATION': ['APP ACCESS','גישה לאפליקציה','צוטריט צו דער אַפּ'],
  'Activez le compte du téléphone.': ['Activate the phone’s account.','הפעילו את החשבון של הטלפון.','אַקטיווירט דעם טעלעפֿאָנס קאָנטע.'],
- 'Choisissez un appareil déjà configuré, puis transmettez son code à l’utilisateur. Il pourra l’activer avec son adresse e-mail et son numéro de téléphone.': ['Choose a configured device and share its code with the user. They can activate it with their email address and phone number.','בחרו מכשיר שכבר הוגדר ושלחו את הקוד למשתמש. ניתן להפעיל אותו עם כתובת אימייל ומספר טלפון.','קלײַבט אַ קאַנפֿיגורירטן מיטל און גיט דעם קאָד צום באַניצער. מען קען עס אַקטיווירן מיט אַן אימייל־אַדרעס און טעלעפֿאָן־נומער.'],
  'Appareil configuré': ['Configured device','מכשיר מוגדר','קאַנפֿיגורירטער מיטל'],
  'Créer un code de compte': ['Create an account code','יצירת קוד לחשבון','שאַפֿן אַ קאָנטע־קאָד'],
  'Code à usage unique · expire après 15 minutes': ['Single-use code · expires after 15 minutes','קוד לשימוש חד-פעמי · תקף ל-15 דקות','איינמאָליקער קאָד · גילטיק פֿאַר 15 מינוט'],
  'Copier le code': ['Copy code','העתקת הקוד','קאָפּירן דעם קאָד'],
- 'L’activation remplace l’accès précédent de ce téléphone. L’utilisateur peut aussi se connecter avec un code reçu par e-mail. Le numéro de contact n’est pas vérifié par SMS.': ['Activation replaces this phone’s previous access. Users can also sign in with an emailed code. The contact phone number is not verified by SMS.','ההפעלה מחליפה את הגישה הקודמת של טלפון זה. ניתן להתחבר גם באמצעות קוד שנשלח באימייל. מספר הטלפון ליצירת קשר אינו מאומת ב-SMS.','אַקטיוואַציע פֿאַרבײַט דעם פֿריִערדיקן צוטריט פֿון דעם טעלעפֿאָן. מען קען זיך אויך אַרײַנלאָגירן מיט אַ קאָד דורך אימייל. דער קאָנטאַקט־נומער ווערט ניט באַשטעטיקט דורך SMS.'],
  'VOS UTILISATEURS': ['YOUR USERS','המשתמשים שלכם','אײַערע באַניצער'],
  'Comptes de l’application': ['App accounts','חשבונות האפליקציה','אַפּ־קאָנטעס'],
  'Actualiser les comptes': ['Refresh accounts','רענון החשבונות','דערפֿרישן קאָנטעס'],
@@ -42,5 +55,6 @@ export function translateAccountPanel(panel,language) {
  while(walker.nextNode())nodes.push(walker.currentNode);
  for(const node of nodes){const raw=node.nodeValue,source=raw.trim();node.nodeValue=raw.replace(source,accountText(source,language));}
  for(const node of panel.querySelectorAll('[aria-label]'))node.setAttribute('aria-label',accountText(node.getAttribute('aria-label'),language));
- panel.querySelector('#pairCode').dir='ltr';
+ const code = panel.querySelector('#pairCode');
+ if (code) code.dir = 'ltr';
 }

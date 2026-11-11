@@ -1,0 +1,208 @@
+.android-guided {
+  max-width: 760px;
+  margin-inline: auto;
+}
+
+.android-guided .setup-heading {
+  margin-block: 0 20px;
+}
+
+.android-guided .setup-progress {
+  margin-block-end: 20px;
+}
+
+.android-guided .setup-card > p:not(.setup-error),
+.setup-registration form > p,
+.device-rules > p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.android-guided .setup-card > .primary,
+.setup-registration .primary {
+  margin-block-start: 12px;
+}
+
+.setup-categories,
+.setup-contact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin-block: 12px;
+}
+
+#androidWorkspace .setup-categories input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+  margin-inline-end: 4px;
+}
+
+.setup-categories label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.setup-contact input,
+#androidWorkspace .setup-help input[data-setup-extra] {
+  display: block;
+  margin-block-start: 5px;
+}
+
+.setup-id {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-block: 8px 16px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft, #f8f6ff);
+}
+
+.setup-id code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.setup-id button {
+  flex-shrink: 0;
+}
+
+.setup-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 16px;
+}
+
+.setup-record-name,
+.device-record-id > small,
+.device-note > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.device-search {
+  margin-block-end: 12px;
+}
+
+.device-detail-card > [data-approve-record] {
+  margin-block-end: 14px;
+}
+
+.device-client-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px 12px;
+  align-items: end;
+  margin-block: 14px;
+}
+
+.device-client-form select,
+.device-rule-form select,
+.device-rule-form input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: white;
+  font: inherit;
+}
+
+.device-client-form select {
+  display: block;
+  margin-block-start: 5px;
+}
+
+.device-client-form [role="status"] {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.device-client-form [role="status"]:empty {
+  display: none;
+}
+
+.device-rules {
+  margin-block: 16px;
+  padding-block: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.device-rules-heading,
+.device-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.device-rules-heading {
+  justify-content: space-between;
+}
+
+.device-rules-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.device-rule {
+  padding-block: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.device-rule > span:first-child {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.device-rule-state {
+  color: var(--muted);
+}
+
+.device-rule-form {
+  display: grid;
+  grid-template-columns: auto minmax(100px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-block-start: 12px;
+}
+
+.device-rule-form[hidden] {
+  display: none;
+}
+
+.device-rules [data-policy-error] {
+  color: #a33138;
+}
+
+.device-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .setup-contact,
+  .device-client-form,
+  .device-rule-form {
+    grid-template-columns: 1fr;
+  }
+  .device-rule-form .button,
+  .device-client-form .button {
+    justify-self: start;
+  }
+}
