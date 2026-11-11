@@ -125,6 +125,53 @@ export async function setDeviceConfigured(id,configured){
   if(error)throw error;
 }
 
+async function deviceRpc(name, params) {
+  const { data, error } = await mustDb().rpc(name, params);
+  if (error) throw error;
+  return data;
+}
+
+export function registerUsbDevice(phone, targetDevice = null) {
+  const model = [phone.manufacturer, phone.model].filter(Boolean).join(' ').trim().slice(0, 120);
+  return deviceRpc('yd_register_usb_device', {
+    usb_serial: phone.serial,
+    device_name: model.slice(0, 100) || 'Android',
+    device_model: model || 'Android',
+    target_device: targetDevice
+  });
+}
+
+export function verifyUsbTarget(phone, targetDevice = null) {
+  return deviceRpc('yd_verify_usb_target', { target_device: targetDevice, usb_serial: phone.serial });
+}
+
+export async function deviceRegistration(id) {
+  const { data, error } = await mustDb().from('devices')
+    .select('id,configuration_status').eq('id', id).single();
+  if (error) throw error;
+  return { device_id: data.id, configuration_status: data.configuration_status };
+}
+
+export function assignDeviceClient(id, clientId) {
+  return deviceRpc('yd_assign_device_client', { target_device: id, target_client: clientId || null });
+}
+
+export function issueAppActivation(id, email, phone) {
+  return deviceRpc('yd_issue_app_activation', {
+    target_device: id, contact_email: email.trim(), contact_phone: phone.trim().replace(/[\s().-]/g, '')
+  });
+}
+
+export function loadDevicePolicy(id) {
+  return deviceRpc('yd_admin_device_policy', { target_device: id });
+}
+
+export function setDeviceRule(id, kind, target, allowed) {
+  return deviceRpc('yd_set_device_rule', {
+    target_device: id, rule_kind: kind, rule_target: target, allowed
+  });
+}
+
 export async function updateStoreName(userId,shopName){
   const {error}=await mustDb().from('reseller_profiles').update({shop_name:shopName.trim(),updated_at:new Date().toISOString()}).eq('user_id',userId);
   if(error)throw error;

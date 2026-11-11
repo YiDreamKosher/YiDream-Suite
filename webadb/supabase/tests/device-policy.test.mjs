@@ -1,0 +1,256 @@
+import { PGlite } from '@electric-sql/pglite';
+import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+
+const db = new PGlite();
+await db.waitReady;
+
+const owner = '00000000-0000-4000-8000-000000000001';
+const adminA = '00000000-0000-4000-8000-000000000002';
+const adminB = '00000000-0000-4000-8000-000000000003';
+const customer = '00000000-0000-4000-8000-000000000004';
+const legacyCustomer = '00000000-0000-4000-8000-000000000005';
+const clientA = '10000000-0000-4000-8000-000000000001';
+const clientB = '10000000-0000-4000-8000-000000000002';
+const deviceB = '20000000-0000-4000-8000-000000000002';
+const oldRequest = '30000000-0000-4000-8000-000000000001';
+const newRequest = '30000000-0000-4000-8000-000000000002';
+const serial = 'fixture-usb-serial-a';
+const email = 'customer@example.invalid';
+const phone = '+33123456789';
+
+await db.exec(`
+create role anon;
+create role authenticated;
+create role service_role bypassrls;
+create schema auth;
+create schema extensions;
+create schema storage;
+create table auth.users(id uuid primary key, email text, email_confirmed_at timestamptz, banned_until timestamptz);
+create table auth.sessions(id uuid primary key, user_id uuid references auth.users, not_after timestamptz);
+create function auth.uid() returns uuid language sql stable as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
+create function auth.jwt() returns jsonb language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
+$$;
+-- Local stand-in for the pgcrypto byte generator, unavailable in PGlite.
+create function extensions.gen_random_bytes(n integer) returns bytea language sql volatile as $$
+  select substring(sha256(convert_to(gen_random_uuid()::text || gen_random_uuid()::text, 'UTF8')) from 1 for n)
+$$;
+create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+create table storage.objects(id uuid primary key default gen_random_uuid(), bucket_id text, name text);
+alter table storage.objects enable row level security;
+grant usage on schema public, auth, storage to anon, authenticated, service_role;
+grant select, insert, update on storage.objects to anon, authenticated;
+`);
+
+const loadMigration = async (name) => {
+  const sql = await readFile(new URL('../migrations/' + name, import.meta.url), 'utf8');
+  await db.exec(sql.replaceAll('create extension if not exists pgcrypto;', ''));
+};
+
+for (const file of [
+  '20261006000000_reseller_admin.sql',
+  '20261007000000_owner_admin_portal.sql',
+  '20261029000000_mdm_catalog_and_site_requests.sql',
+  '20261030000000_admin_access_control.sql',
+  '20261030000000_catalog_releases_and_revocation.sql',
+  '20261106135728_app_customer_access.sql',
+]) {
+  await loadMigration(file);
+}
+
+for (const [id, name] of [
+  [owner, 'owner'], [adminA, 'admin-a'], [adminB, 'admin-b'],
+  [customer, 'customer'], [legacyCustomer, 'legacy-customer'],
+]) {
+  await db.query('insert into auth.users(id, email, email_confirmed_at) values ($1, $2, now())', [id, name + '@example.invalid']);
+  await db.query('insert into auth.sessions(id, user_id) values ($1, $1)', [id]);
+}
+for (const [id, role] of [[owner, 'owner'], [adminA, 'admin'], [adminB, 'admin']]) {
+  await db.query('insert into public.platform_admins(user_id, role) values ($1, $2)', [id, role]);
+}
+await db.query("insert into public.clients(id, user_id, name) values ($1,$2,'A'),($3,$4,'B')", [clientA, adminA, clientB, adminB]);
+await db.query("insert into public.devices(id, user_id, name, platform) values ($1,$2,'B','Android')", [deviceB, adminB]);
+await db.query("insert into public.yd_site_requests(device_id,client_request_id,site_url,status) values ($1,$2,'https://legacy.example/','approved')", [deviceB, oldRequest]);
+await act('authenticated', owner);
+await db.query('select public.set_device_configured($1,true)', [deviceB]);
+await act('authenticated', legacyCustomer);
+const legacyProfile = await scalar('select public.yd_complete_app_profile($1)', [phone]);
+await act('authenticated', adminB);
+const legacyPairCode = await scalar('select public.yd_create_pairing($1)', [deviceB]);
+await act('authenticated', legacyCustomer);
+const legacyDevice = await scalar('select public.yd_pair_device($1)', [legacyPairCode]);
+await db.exec('reset role');
+
+const migration = '20261111143137_device_policies_and_usb_activation.sql';
+await loadMigration(migration);
+await loadMigration(migration);
+
+async function act(role, uid = '', live = true, token = '') {
+  await db.exec('reset role');
+  await db.query("select set_config('request.jwt.claim.sub', $1, false)", [uid]);
+  await db.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(live && uid ? { session_id: uid } : {})]);
+  await db.query("select set_config('request.headers', $1, false)", [JSON.stringify(token ? { 'x-yidream-app-token': token } : {})]);
+  await db.exec('set role ' + role);
+}
+
+async function scalar(sql, params = []) {
+  return Object.values((await db.query(sql, params)).rows[0])[0];
+}
+
+const verify = (id, serialNumber = serial) => scalar('select public.yd_verify_usb_target($1,$2)', [id, serialNumber]);
+const register = (id = null, serialNumber = serial) => scalar(
+  'select public.yd_register_usb_device($1,$2,$3,$4)', [serialNumber, 'Phone A', 'Qin test model', id],
+);
+const issue = (id, address = email) => scalar('select public.yd_issue_app_activation($1,$2,$3)', [id, address, phone]);
+const redeem = (code) => scalar('select public.yd_redeem_app_activation($1)', [code]);
+const adminPolicy = (id) => scalar('select public.yd_admin_device_policy($1)', [id]);
+const setRule = (id, kind, target, allowed) => scalar('select public.yd_set_device_rule($1,$2,$3,$4)', [id, kind, target, allowed]);
+const phonePolicy = (token) => scalar('select public.yd_get_device_policy($1)', [token]);
+const report = (token, revision, applied) => scalar('select public.yd_report_device_policy($1,$2,$3)', [token, revision, applied]);
+const access = (token) => scalar('select public.yd_app_access_status($1)', [token]);
+
+await act('anon');
+await assert.rejects(() => verify(null), /permission denied/);
+await assert.rejects(() => register(), /permission denied/);
+await assert.rejects(() => phonePolicy('invalid'), /APP_ACCESS_DENIED/);
+await assert.rejects(() => db.query('select * from private.yd_pending_app_activation'), /permission denied/);
+
+await act('authenticated', customer);
+await assert.rejects(() => register(), /APP_ACCESS_DENIED/);
+await assert.rejects(() => db.query('select public.yd_complete_app_profile($1)', [phone]), /APP_ACCESS_DENIED/);
+await assert.rejects(() => access(null), /APP_ACCESS_DENIED/);
+await act('authenticated', legacyCustomer);
+assert.equal((await access(null)).device_id, deviceB);
+assert.equal((await scalar('select public.yd_complete_app_profile($1)', ['+33123456780'])).account.id, legacyProfile.account.id);
+assert.deepEqual((await phonePolicy(legacyDevice.token)).sites, { 'legacy.example': true });
+await act('authenticated', adminA, false);
+await assert.rejects(() => register(), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+assert.equal(await verify(null), true);
+const prepared = await register();
+const id = prepared.device_id;
+assert.match(id, /^[0-9a-f-]{36}$/);
+assert.equal(prepared.configuration_status, 'needs_configuration');
+assert.deepEqual(await register(), prepared);
+assert.equal(await verify(id), true);
+assert.equal(await verify(id, 'different-phone'), false);
+await assert.rejects(() => register(id, 'different-phone'), /USB_DEVICE_MISMATCH/);
+await assert.rejects(() => issue(id), /CONFIGURED_DEVICE_REQUIRED/);
+await assert.rejects(() => setRule(id, 'app', 'com.whatsapp', false), /CONFIGURED_DEVICE_REQUIRED/);
+await assert.rejects(() => db.query('select public.set_device_configured($1,true)', [id]), /propriétaire/);
+
+await act('authenticated', adminB);
+assert.equal(await verify(null), false);
+assert.equal(await verify(id), false);
+await assert.rejects(() => register(), /DEVICE_NOT_AVAILABLE/);
+await assert.rejects(() => adminPolicy(id), /DEVICE_NOT_AVAILABLE/);
+assert.deepEqual((await adminPolicy(deviceB)).sites, { 'legacy.example': true });
+
+await act('authenticated', owner);
+await db.query('select public.set_device_configured($1,true)', [id]);
+await act('authenticated', adminA);
+const assigned = await scalar('select public.yd_assign_device_client($1,$2)', [id, clientA]);
+assert.deepEqual(assigned, { device_id: id, client_id: clientA, configuration_status: 'configured' });
+await assert.rejects(() => db.query('select public.yd_assign_device_client($1,$2)', [id, clientB]), /CLIENT_NOT_AVAILABLE/);
+await assert.rejects(() => setRule(id, 'site', '127.0.0.1', true), /INVALID_DEVICE_RULE/);
+await assert.rejects(() => setRule(id, 'site', 'example.org@evil.test', true), /INVALID_DEVICE_RULE/);
+await assert.rejects(() => setRule(id, 'app', 'com.yidream.mdm', false), /INVALID_DEVICE_RULE/);
+const rule = await setRule(id, 'app', 'com.whatsapp', false);
+assert.equal(rule.revision, 1);
+assert.deepEqual(rule.apps, { 'com.whatsapp': false });
+assert.equal((await setRule(id, 'app', 'com.whatsapp', false)).revision, 1);
+
+const activation = await issue(id, email.toUpperCase());
+assert.match(activation.code, /^[0-9A-F]{32}$/);
+assert.ok(Date.parse(activation.expires_at) > Date.now() + 14 * 60_000);
+await act('anon');
+await assert.rejects(
+  () => db.query('select public.yd_activate_app_code($1,$2,$3)', [activation.code, 'substituted@example.invalid', phone]),
+  /INVALID_ACCOUNT_CODE/,
+);
+const session = await redeem(activation.code);
+assert.equal(session.account.email, email);
+assert.equal(session.account.contact_phone, phone);
+assert.equal(session.account.email_verified, false);
+assert.equal(session.device_id, id);
+assert.ok(Date.parse(session.expires_at) > Date.now() + 89 * 86_400_000);
+await assert.rejects(() => redeem(activation.code), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => phonePolicy(session.token), /APP_ACCESS_DENIED/);
+await act('anon', '', true, session.app_token);
+assert.deepEqual((await phonePolicy(session.token)).apps, { 'com.whatsapp': false });
+assert.equal((await report(session.token, 99, true)).last_sync_at, null);
+assert.equal((await report(session.token, 1, false)).apply_failed, true);
+const applied = await report(session.token, 1, true);
+assert.equal(applied.applied_revision, 1);
+assert.equal(applied.apply_failed, false);
+assert.ok(applied.last_sync_at);
+
+await assert.rejects(() => db.query('select public.yd_request_site_change($1,$2,$3,$4,$5)',
+  [session.token, 'https://allowed.example@evil.test/', '', newRequest, false]), /INVALID_SITE_REQUEST/);
+await db.query('select public.yd_request_site_change($1,$2,$3,$4,$5)',
+  [session.token, 'https://safe.example/path', 'Block this site', newRequest, false]);
+await db.query('select public.yd_request_site_change($1,$2,$3,$4,$5)',
+  [session.token, 'https://different.example/path', '', newRequest, true]);
+const requests = (await db.query('select * from public.yd_device_requests($1)', [session.token])).rows;
+assert.equal(requests.length, 1);
+assert.equal(requests[0].requested_allowed, false);
+
+await act('authenticated', adminB);
+await assert.rejects(() => db.query("select public.yd_review_site($1,'approved')", [requests[0].id]), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', adminA);
+await setRule(id, 'site', 'SAFE.EXAMPLE', true);
+await db.query("select public.yd_review_site($1,'approved')", [requests[0].id]);
+assert.deepEqual((await adminPolicy(id)).sites, { 'safe.example': false });
+await act('anon', '', true, session.app_token);
+const updated = await phonePolicy(session.token);
+assert.equal(updated.revision, 3);
+assert.equal((await report(session.token, 1, true)).applied_revision, 1);
+assert.equal((await report(session.token, 3, true)).applied_revision, 3);
+
+await db.exec('reset role');
+await db.query("update public.yd_device_links set app_session_expires_at=now()+interval '1 day' where device_id=$1", [id]);
+await act('anon');
+assert.ok(Date.parse((await access(session.app_token)).expires_at) > Date.now() + 89 * 86_400_000);
+
+await act('authenticated', adminA);
+const pending = await issue(id);
+await act('anon');
+assert.equal((await access(session.app_token)).account.id, session.account.id);
+const renewed = await redeem(pending.code);
+assert.equal(renewed.account.id, session.account.id);
+await assert.rejects(() => access(session.app_token), /APP_ACCESS_DENIED/);
+await act('anon', '', true, renewed.app_token);
+assert.equal((await phonePolicy(renewed.token)).applied_revision, 0);
+
+await act('authenticated', adminA);
+const beforeSuspension = await issue(id);
+await db.query('select public.yd_set_app_account_access($1,false)', [session.account.id]);
+await db.query('select public.yd_set_app_account_access($1,true)', [session.account.id]);
+await act('anon');
+await assert.rejects(() => redeem(beforeSuspension.code), /INVALID_ACCOUNT_CODE/);
+
+await act('authenticated', adminA);
+const expiredClaim = await issue(id);
+await db.exec('reset role');
+await db.query("update private.yd_pending_app_activation set expires_at=now()-interval '1 second' where device_id=$1", [id]);
+await act('anon');
+await assert.rejects(() => redeem(expiredClaim.code), /INVALID_ACCOUNT_CODE/);
+await act('authenticated', adminA);
+const inactiveIssuerClaim = await issue(id);
+await db.exec('reset role');
+await db.query('update public.platform_admins set is_active=false where user_id=$1', [adminA]);
+await act('authenticated', adminA);
+await assert.rejects(() => adminPolicy(id), /APP_ACCESS_DENIED/);
+await act('anon', '', true, renewed.app_token);
+await assert.rejects(() => phonePolicy(renewed.token), /APP_ACCESS_DENIED/);
+await assert.rejects(() => redeem(inactiveIssuerClaim.code), /INVALID_ACCOUNT_CODE/);
+
+await db.exec('reset role');
+await loadMigration(migration);
+await act('authenticated', owner);
+assert.deepEqual((await adminPolicy(id)).sites, { 'safe.example': false });
+await db.close();
+console.log('Device rules: USB identity, shop and session isolation, client assignment, approved activation, replay and expiry, policy delivery and site decisions passed.');

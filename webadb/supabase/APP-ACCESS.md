@@ -2,7 +2,17 @@
 
 The Android user interface now requires an end-user account or a valid code issued by an approved YiDream administrator. These accounts are separate from `platform_admins`. Signing in to the app never grants access to the administration website, device-owner privileges or another customer's devices.
 
-## Sign-in methods
+## Device approval and activation (Android 6.1)
+
+The Android wizard registers a prepared phone with a stable device ID. A private hash of its USB identifier prevents duplicate records. The platform owner approves the device through the existing configuration check. Approved administrators can assign a client from that device’s shop and issue a single-use code for a configured device in their scope.
+
+The activation RPC stores the administrator-provided contact details and issues a 15-minute code. Redemption verifies the approved device and current issuer, consumes the code and returns a device-scoped account and session. YiDream 6.1 accepts this code directly or via the Android USB shell entry point. A saved session is reused and revalidated. New code sessions renew their 90-day expiry when used. Existing approved sessions are still supported.
+
+The phone reads and acknowledges individual app and site rules using its account and device credentials. A console edit creates a new revision. It is shown as applied after the device confirms that revision. Site requests support allow and block actions. The YiDream reader follows the site's rules on the phone.
+
+Apply the device-policy migration after the v6.0 account migration, then publish the Android APK and Suite console. Use a configured phone to test USB activation, site decisions and the synchronization status before expanding the rollout.
+
+## Legacy v6.0 sign-in methods
 
 **Email and contact number:** the app asks for an email address and an international phone number. `app-auth` privately generates a Supabase Auth email OTP and sends it from `YiDream <yiddishdream@gmail.com>`. The app verifies the OTP directly with Supabase Auth, then calls `yd_complete_app_profile`. The server reads the confirmed address from `auth.users`; it never trusts an email supplied in profile metadata. The phone number is a contact field, not SMS-verified identity. JWT expiry/refresh and OTP verification remain managed by Supabase Auth.
 
@@ -27,7 +37,7 @@ All RPC calls and the `app-auth` request use the project's public publishable AP
 | `yd_list_app_accounts()` | Approved admin or owner | Device-scoped rows with `id,email,contact_phone,email_verified,is_active,device_id,device_name,created_at,last_seen_at,can_manage`. |
 | `yd_set_app_account_access(target_account uuid,enabled boolean)` | Owner, or approved admin owning every linked device of that account | Void. Ordinary shop admins cannot globally suspend shared accounts spanning other shops. |
 
-`account` contains `id,email,contact_phone,email_verified,is_active`. A verified email account may enter the app before a device is associated; cloud catalog and website-request features still require a configured, enrolled device. An administrator-issued code authenticates only its one enrolled device.
+`account` contains `id,email,contact_phone,email_verified,is_active`. The original v6.0 migration allowed a verified account to sign in before associating a device. Device approval is required by the 6.1 workflow. An administrator-issued code authenticates only its one enrolled device.
 
 Every catalog/request call continues to include `device_token`, plus either the signed-in user's `Authorization: Bearer …` or the `x-yidream-app-token` header. Private APK downloads require the same app identity and `x-yidream-device-token`. Backend RPCs and storage policies validate active account, matching device binding, configured device and active approved issuer. A cached local token alone is insufficient. Changed shop ownership invalidates the old issuer's device access.
 

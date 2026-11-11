@@ -15,14 +15,19 @@ export async function preparePhone(client, release, report = () => {}) {
   if (!await client.isInstalled()) throw new Error('Installation YiDream non confirmée. Réessayez.');
   report('owner');
   connected();
-  const policy = await client.sh(['dumpsys', 'device_policy']);
-  const ownerSection = policy.out.match(/Device Owner:[\s\S]*?(?=\n\s*(?:Profile Owner|User ID|Enabled Device Admins)|$)/)?.[0] || '';
-  if (!ownerSection.includes('admin=ComponentInfo{' + CONFIG.appPackage + '/')) {
+  const ownsDevice = async () => {
+    const policy = await client.sh(['dumpsys', 'device_policy']);
+    connected();
+    const ownerSection = policy.out.match(/Device Owner:[\s\S]*?(?=\n\s*(?:Profile Owner|User ID|Enabled Device Admins)|$)/)?.[0] || '';
+    return ownerSection.includes('admin=ComponentInfo{' + CONFIG.appPackage + '/');
+  };
+  if (!await ownsDevice()) {
     const result = await client.setDeviceOwner();
     connected();
     if (!(result.exitCode === 0 || (result.exitCode === null && /Success/i.test(result.out)))) {
       throw new Error(result.out || 'La gestion du téléphone n’a pas pu être activée.');
     }
+    if (!await ownsDevice()) throw new Error('DEVICE_OWNER_NOT_CONFIRMED');
   }
   connected();
   return serial;

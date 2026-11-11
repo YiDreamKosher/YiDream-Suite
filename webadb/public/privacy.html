@@ -17,18 +17,18 @@
   <header><a class="brand" href="./admin/">YiDream <span>Suite</span></a><nav aria-label="Language"><a href="#english">English</a> · <a href="#francais" lang="fr">Français</a></nav></header>
   <main>
     <section id="english" aria-labelledby="privacyTitle">
-      <p class="date">Updated 7 November 2026</p>
+      <p class="date">Updated 11 November 2026</p>
       <h1 id="privacyTitle">Your account and your information.</h1>
       <p class="lead">This page explains the information used by the YiDream Android app and its administration service.</p>
       <p class="notice">Questions, corrections or a deletion request: <a href="mailto:yiddishdream@gmail.com">yiddishdream@gmail.com</a>. Requests are handled by the YiDream service owner.</p>
 
       <h2>Information used by the Android app</h2>
       <ul>
-        <li>Your email address and an international contact phone number are required to use the account-protected app interface.</li>
+        <li>Your administrator supplies an email address and an international contact phone number for the approved device account.</li>
         <li>We record the account identifier, email-verification state, active or suspended state, creation time and last access time.</li>
-        <li>For associated devices, we use a device identifier, device name, assigned administrator or shop, and the account-device association. Site requests include the address requested, your optional explanation, the decision and the administrator’s reply.</li>
+        <li>For associated devices, we use a device identifier, device name, assigned administrator or shop, and the account-device association. Site requests include the address, the requested allow or block action, your optional explanation, the decision and the reply. We store the device’s app and site rules and the time and result of its last synchronization. A hash of the USB identifier helps us recognize a previously registered device.</li>
       </ul>
-      <p>An email sign-in code verifies access to that email address. A contact phone number is not verified by SMS. An account activated with an administrator code does not by itself verify ownership of the supplied email address or phone number.</p>
+      <p>On Android 6.1 and later, an administrator issues an activation code that can be entered on the phone or transferred by USB. Earlier email sign-in verified access to the account address. A contact phone number is not verified by SMS. An account activated with an administrator code does not by itself verify ownership of the supplied email address or phone number.</p>
 
       <h2>Why the information is used and who can see it</h2>
       <p>The service uses this information to sign you in, associate an authorized device, check access, handle site requests and provide assistance. Your assigned administrator can view the account and device information available within their permissions. The YiDream owner can administer the service and its accounts. Creating a customer account does not give you administrator rights.</p>
@@ -41,24 +41,24 @@
       <p>WhatsApp opens only when you choose its assistance button. YiDream does not automatically send a WhatsApp message, upload your WhatsApp conversations or add you to a group. WhatsApp and your email application are external services with their own privacy settings and rules.</p>
 
       <h2>Credentials, expiry and retention</h2>
-      <p>App session and device credentials stored on the phone are encrypted using Android Keystore. Administrator activation codes are stored as hashes on the server, can be used once and expire after 15 minutes. Code-based app sessions expire after 30 days. Email sign-in code and authentication-session expiry follow the project’s Supabase Auth settings.</p>
+      <p>App session and device credentials stored on the phone are encrypted using Android Keystore. Administrator activation codes are stored as hashes on the server, can be used once and expire after 15 minutes. New activation sessions expire after 90 days without a successful access check. Earlier code-based sessions have a 30-day lifetime. Email sign-in code and authentication-session expiry follow the project’s Supabase Auth settings.</p>
       <p>Signing out, expiry or suspension blocks access but does not delete account or device records. Account and association records currently have no automatic deletion schedule and remain until removed through account administration. Temporary abuse-prevention records use private hashed identifiers and counters; old entries are cleaned during subsequent service requests. This is not a guaranteed background deletion schedule. Infrastructure providers may retain their own logs under their service settings.</p>
       <p>Contact <a href="mailto:yiddishdream@gmail.com">yiddishdream@gmail.com</a> to request access to, correction of or deletion of your information. Include the account email and a description of the request; never send a password, activation code or sign-in code.</p>
     </section>
 
     <section id="francais" class="language" lang="fr" aria-labelledby="confidentialiteTitre">
-      <p class="date">Mis à jour le 7 novembre 2026</p>
+      <p class="date">Mis à jour le 11 novembre 2026</p>
       <h1 id="confidentialiteTitre">Votre compte et vos données.</h1>
       <p class="lead">Cette page décrit les données utilisées par l’application Android YiDream et son service d’administration.</p>
       <p class="notice">Pour une question, une correction ou une demande de suppression : <a href="mailto:yiddishdream@gmail.com">yiddishdream@gmail.com</a>. Le propriétaire du service YiDream traite ces demandes.</p>
 
       <h2>Données utilisées par l’application Android</h2>
       <ul>
-        <li>L’adresse e-mail et un numéro de téléphone de contact avec indicatif international sont obligatoires pour utiliser l’interface de l’application protégée par un compte.</li>
+        <li>Votre administrateur renseigne une adresse e-mail et un numéro de téléphone de contact avec indicatif international pour le compte de l’appareil approuvé.</li>
         <li>Le service enregistre l’identifiant du compte, l’état de vérification de l’e-mail, l’état actif ou suspendu, la date de création et celle du dernier accès.</li>
-        <li>Pour un appareil associé, il utilise son identifiant, son nom, son administrateur ou magasin et son association au compte. Une demande de site contient l’adresse demandée, votre explication facultative, la décision et la réponse de l’administrateur.</li>
+        <li>Pour un appareil associé, il utilise son identifiant, son nom, son administrateur ou magasin et son association au compte. Une demande de site contient l’adresse, l’action demandée (autoriser ou bloquer), votre explication facultative, la décision et la réponse. Le service conserve les règles d’applications et de sites, ainsi que la date et le résultat de la dernière synchronisation. Une empreinte de l’identifiant USB sert à reconnaître un appareil déjà enregistré.</li>
       </ul>
-      <p>Un code de connexion reçu par e-mail vérifie l’accès à cette adresse. Le numéro de contact n’est pas vérifié par SMS. Une activation par code administrateur ne vérifie pas, à elle seule, que l’adresse e-mail ou le numéro renseigné vous appartient.</p>
+      <p>À partir de la version Android 6.1, l’administrateur fournit un code d’activation à saisir sur le téléphone ou à transférer par USB. L’ancienne connexion par e-mail vérifiait l’accès à cette adresse. Le numéro de contact n’est pas vérifié par SMS. Une activation par code administrateur ne vérifie pas, à elle seule, que l’adresse e-mail ou le numéro renseigné vous appartient.</p>
 
       <h2>Utilisation et accès aux informations</h2>
       <p>Ces informations servent à la connexion, à l’association d’un appareil autorisé, au contrôle de l’accès, au traitement des demandes de sites et à l’assistance. Votre administrateur peut consulter les informations de compte et d’appareil dans le périmètre de ses droits. Le propriétaire YiDream peut administrer le service et ses comptes. Un compte utilisateur ne donne pas de droits administrateur.</p>
@@ -71,7 +71,7 @@
       <p>WhatsApp s’ouvre uniquement si vous choisissez son bouton d’assistance. YiDream n’envoie pas automatiquement de message WhatsApp, ne téléverse pas vos conversations et ne vous ajoute pas à un groupe. WhatsApp et votre messagerie sont des services externes avec leurs propres règles et réglages de confidentialité.</p>
 
       <h2>Identifiants, expiration et conservation</h2>
-      <p>Les identifiants de session et d’appareil conservés sur le téléphone sont chiffrés avec Android Keystore. Les codes d’activation administrateur sont conservés sous forme d’empreintes sur le serveur, utilisables une seule fois et valables 15 minutes. Les sessions activées par code expirent après 30 jours. La durée des codes reçus par e-mail et des sessions d’authentification dépend des réglages Supabase Auth du projet.</p>
+      <p>Les identifiants de session et d’appareil conservés sur le téléphone sont chiffrés avec Android Keystore. Les codes d’activation administrateur sont conservés sous forme d’empreintes sur le serveur, utilisables une seule fois et valables 15 minutes. Les nouvelles sessions activées par code expirent après 90 jours sans vérification d’accès réussie. Les anciennes sessions par code durent 30 jours. La durée des codes reçus par e-mail et des sessions d’authentification dépend des réglages Supabase Auth du projet.</p>
       <p>La déconnexion, l’expiration ou la suspension bloque l’accès sans supprimer les données du compte ou de l’appareil. Les comptes et associations n’ont actuellement pas de suppression automatique programmée ; ils restent conservés jusqu’à leur suppression dans le cadre de l’administration du service. Les compteurs temporaires de prévention des abus utilisent des identifiants hachés privés ; les anciennes entrées sont nettoyées lors des requêtes suivantes du service. Il ne s’agit pas d’une suppression garantie en arrière-plan. Les prestataires peuvent conserver leurs propres journaux selon leurs réglages.</p>
       <p>Pour demander l’accès, la correction ou la suppression de vos données, écrivez à <a href="mailto:yiddishdream@gmail.com">yiddishdream@gmail.com</a> en indiquant l’adresse du compte et votre demande. N’envoyez jamais de mot de passe, de code d’activation ou de code de connexion.</p>
     </section>

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { preparePhone, phoneConfiguration } from '../src/android-setup.js';
 const fake = () => {
   const calls=[];
+  let owner = false;
   return { calls, info:{serial:'phone-a'}, installApk:async()=>calls.push('install'),isInstalled:async()=>true,
-    sh:async()=>({out:'Device Owner:\n admin=ComponentInfo{other.app/.Admin}\n User ID: 0'}),
-    setDeviceOwner:async()=>{calls.push('owner');return {exitCode:0,out:'Success'};}
+    sh:async()=>({out:`Device Owner:\n admin=ComponentInfo{${owner ? 'com.yidream.mdm/.MyDeviceAdminReceiver' : 'other.app/.Admin'}}\n User ID: 0`}),
+    setDeviceOwner:async()=>{calls.push('owner');owner = true;return {exitCode:0,out:'Success'};}
   };
 };
 test('prepares by installing and activating management in order',async()=>{
@@ -20,6 +21,11 @@ test('installation failure prevents activating device management',async()=>{
 });
 test('owner failure is reported rather than completing preparation',async()=>{
   const c=fake();c.setDeviceOwner=async()=>({exitCode:1,out:'Existing accounts'});await assert.rejects(preparePhone(c,{blob:new Blob()}),/Existing accounts/);
+});
+test('a successful command alone does not prove that YiDream manages the device', async () => {
+  const phone = fake();
+  phone.setDeviceOwner = async () => ({ exitCode: 0, out: 'Success' });
+  await assert.rejects(preparePhone(phone, { blob: new Blob() }), /DEVICE_OWNER_NOT_CONFIRMED/);
 });
 test('disconnect or switching phones during installation stops the next operation',async()=>{
   for(const next of [null,{serial:'phone-b'}]){const c=fake();c.installApk=async()=>{c.info=next;};await assert.rejects(preparePhone(c,{blob:new Blob()}),/NOT_CONNECTED/);assert.deepEqual(c.calls,[]);}

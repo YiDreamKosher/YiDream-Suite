@@ -1,5 +1,5 @@
 import { fetchCurrentApk } from './current-apk.js';
-import { preparePhone, phoneConfiguration } from './android-setup.js';
+import { mountUsbEnrollment } from './usb-enrollment.js';
 // YiDream v1.2 — interface de YiDream Android (configurateur Web ADB) branchée sur la vraie logique.
 import { YiDreamAdb, parseExtraPackages } from './adb.js';
 import { CONFIG } from './config.js';
@@ -12,6 +12,7 @@ const appCatalog = {
   'Boutique d’applications': [['Google Play Store','com.android.vending']]
 };
 const defaultBlockedPackages = new Set(Object.values(appCatalog).flat().map(([,pkg]) => pkg));
+export const knownAppPackages = Object.values(appCatalog).flat();
 
 const client = new YiDreamAdb();
 const state = { blocking: { browsers: true, ai: true, social: true, store: true, extra: '', packages: new Set(defaultBlockedPackages) }, bundledApk: null };
@@ -40,10 +41,14 @@ const errText = (e) => {
 const fail = (step, e) => { console.error(e); log(step, '❌ ' + errText(e)); toast(errText(e).split('\n')[0]); };
 const logBox = () => '<div class="log-box" id="logBox"></div>';
 
-client.onDisconnect = () => { log('Connection', t('log_disconnected')); rerender(); };
+let wizard = null;
+client.onDisconnect = () => {
+  if (wizard) wizard.disconnected();
+  else { log('Connection', t('log_disconnected')); rerender(); }
+};
 
 let current = null;
-function rerender() { if (current?.c.isConnected) { if (current.s === 'guided') renderAndroidWizard(current.c); else renderAndroid(current.c, current.s); } }
+function rerender() { if (current?.c.isConnected) renderAndroid(current.c, current.s); }
 
 // ---- Blocs communs ----
 function devicePanel() {
@@ -237,91 +242,23 @@ export function renderAndroid(c, name) {
 
 export const androidNav = ['Connect', 'Install YiDream', 'Device Owner', 'Configuration', 'Unlock & Apply', 'Advanced', 'Logs', 'Settings'];
 
-// Guided entry used by the administration console; the standalone tools remain available.
-const guided = { step: 0, busy: false, preparedSerial: null, error: '', progress: '', done: false };
-let guidedHost = null;
-const wizardCopy = {
-  fr: ['Connecter','Préparer','Choisir le filtre','Appliquer','Configurer un téléphone','Quatre étapes pour préparer votre Android.','Branchez le téléphone en USB et autorisez le débogage USB dans ses réglages.','Connecter le téléphone','Installer YiDream et activer sa gestion en une seule étape. Gardez le téléphone branché.','Préparer le téléphone','Choisissez les applications à masquer. Vous pourrez ajuster ces choix ensuite.','Continuer','Vérifiez le téléphone et les applications sélectionnées, puis lancez la configuration.','Appliquer le filtre','Retour','Téléphone configuré','La configuration a été envoyée au téléphone. Ouvrez YiDream sur celui-ci pour vérifier le résultat.','Configurer un autre téléphone','Détails techniques','Installation de YiDream…','Activation de la gestion…','Envoi de la configuration…','Veuillez patienter…','Applications à masquer','Aide pour la connexion','Chrome ou Edge est nécessaire. Déverrouillez le téléphone et acceptez la demande d’autorisation USB.','Un problème ?','Si l’activation échoue, retirez les comptes personnels dans les réglages Android puis réessayez. Ne réinitialisez pas le téléphone sans sauvegarde.','Options du téléphone','Déconnecter','La préparation peut installer ou mettre à jour YiDream et activer la gestion de cet appareil.'],
-  en: ['Connect','Prepare','Choose filter','Apply','Set up a phone','Four steps to prepare your Android.','Connect the phone by USB and enable USB debugging in its settings.','Connect phone','Install YiDream and activate management in one step. Keep the phone connected.','Prepare phone','Choose the apps to hide. You can adjust your choices later.','Continue','Review the phone and selected apps, then apply the configuration.','Apply filter','Back','Phone configured','The configuration was sent to the phone. Open YiDream on it to check the result.','Set up another phone','Technical details','Installing YiDream…','Activating management…','Sending configuration…','Please wait…','Apps to hide','Connection help','Chrome or Edge is required. Unlock the phone and accept the USB authorization request.','Need help?','If activation fails, remove personal accounts in Android settings and retry. Do not reset the phone without a backup.','Phone options','Disconnect','Preparation may install or update YiDream and enable device management.'],
-  he: ['חיבור','הכנה','בחירת סינון','החלה','הגדרת טלפון','ארבעה שלבים להכנת מכשיר Android.','חברו את הטלפון ב־USB והפעילו ניפוי באגים ב־USB בהגדרות.','חיבור הטלפון','התקנת YiDream והפעלת הניהול בשלב אחד. השאירו את הטלפון מחובר.','הכנת הטלפון','בחרו אילו יישומים להסתיר. ניתן לשנות את הבחירה בהמשך.','המשך','בדקו את הטלפון והיישומים שנבחרו ולאחר מכן החילו את ההגדרות.','החלת הסינון','חזרה','הטלפון הוגדר','ההגדרות נשלחו לטלפון. פתחו את YiDream בטלפון כדי לבדוק את התוצאה.','הגדרת טלפון נוסף','פרטים טכניים','מתקין YiDream…','מפעיל ניהול…','שולח הגדרות…','נא להמתין…','יישומים להסתרה','עזרה בחיבור','נדרש Chrome או Edge. פתחו את נעילת הטלפון ואשרו את בקשת ה־USB.','צריכים עזרה?','אם ההפעלה נכשלת, הסירו חשבונות אישיים בהגדרות Android ונסו שוב. אין לאפס ללא גיבוי.','אפשרויות הטלפון','ניתוק','ההכנה עשויה להתקין או לעדכן YiDream ולהפעיל ניהול מכשיר.'],
-  yi: ['פֿאַרבינדן','צוגרייטן','אויסקלײַבן פֿילטער','אָנווענדן','איינשטעלן אַ טעלעפֿאָן','פֿיר שריט צו צוגרייטן אייער Android.','פֿאַרבינדט דעם טעלעפֿאָן מיט USB און אַקטיווירט USB debugging אין די סעטינגס.','פֿאַרבינדן טעלעפֿאָן','ינסטאַלירט YiDream און אַקטיווירט די פאַרוואַלטונג אין איין שריט. לאָזט דעם טעלעפֿאָן פֿאַרבונדן.','צוגרייטן טעלעפֿאָן','קלײַבט אויס וועלכע אַפּס צו באַהאַלטן. איר קענט שפּעטער ענדערן די ברירה.','ווײַטער','קוקט איבער דעם טעלעפֿאָן און די אויסגעקליבענע אַפּס, דערנאָך שיקט די סעטינגס.','אָנווענדן פֿילטער','צוריק','טעלעפֿאָן איינגעשטעלט','די סעטינגס זענען געשיקט געוואָרן. עפֿנט YiDream אויפֿן טעלעפֿאָן צו קאָנטראָלירן דעם רעזולטאַט.','איינשטעלן נאָך אַ טעלעפֿאָן','טעכנישע פּרטים','ינסטאַלירט YiDream…','אַקטיווירט פאַרוואַלטונג…','שיקט סעטינגס…','ביטע וואַרט…','אַפּס צו באַהאַלטן','הילף בײַם פֿאַרבינדן','Chrome אָדער Edge איז נייטיק. עפֿנט דעם טעלעפֿאָן און באַשטעטיקט דעם USB צוטריט.','דאַרפֿט הילף?','אויב אַקטיוואַציע דורכפֿאַלט, נעמט אַוועק פּערזענלעכע חשבונות אין Android און פּרובירט ווידער. מאַכט נישט קיין reset אָן אַ באַקאַפּ.','טעלעפֿאָן אָפּציעס','אָפּרײַסן','די צוגרייטונג קען אינסטאַלירן אָדער דערהײַנטיקן YiDream און אַקטיווירן די פאַרוואַלטונג.']
-};
-const w = i => (wizardCopy[lang()] || wizardCopy.fr)[i];
+// The guided flow uses the signed-in admin session for fleet records.
+export function renderAndroidWizard(host, options) {
+  disposeAndroidWizard();
+  current = null;
+  const keys = ['browsers', 'assistants', 'social', 'stores'];
+  const groups = Object.values(appCatalog).map((entries, index) => ({
+    key: keys[index], packages: entries.map(([, packageName]) => packageName)
+  }));
+  wizard = mountUsbEnrollment(host, client, { ...options, groups, translateError: errText });
+}
 
-export function renderAndroidWizard(c) {
-  guidedHost = c;
-  current = { c, s: 'guided' };
-  if (!client.info && guided.step > 0) { guided.step = 0; guided.preparedSerial = null; guided.done = false; }
-  c.classList.add('android-guided');
-  const redraw = () => { if (guidedHost?.isConnected) renderAndroidWizard(guidedHost); };
-  const move = step => { guided.step = step; guided.error = ''; redraw(); };
-  const phone = client.info;
-  const phoneName = phone ? `${phone.manufacturer} ${phone.model}`.trim() : 'Android';
-  const run = async action => {
-    if (guided.busy) return;
-    guided.busy = true; guided.error = ''; redraw();
-    try { await action(); }
-    catch (e) { guided.error = errText(e); log('Android', guided.error); }
-    finally { guided.busy = false; guided.progress = ''; redraw(); }
-  };
-  const logs = (window.adbLogs || []).map(x => `[${x.time}] ${x.event}`).join('\n');
-  const info = phone ? `<div class="setup-phone"><span class="setup-phone-icon" aria-hidden="true">▯</span><div><b>${esc(phoneName)}</b><small>Android ${esc(phone.android)} · ${esc(phone.serial)}</small></div><span class="setup-connected">USB</span></div>` : '';
-  if (guided.done) {
-    c.innerHTML = `<section class="setup-success"><span class="setup-success-mark" aria-hidden="true">✓</span><h2>${w(15)}</h2><p>${w(16)}</p>${info}<button class="primary" id="setupAnother">${w(17)}</button></section>`;
-    $('setupAnother').onclick = () => run(async () => { await client.disconnect(); guided.step = 0; guided.preparedSerial = null; guided.done = false; });
-    return;
-  }
-  c.innerHTML = `<div class="setup-heading"><span class="setup-eyebrow">ANDROID · USB</span><h2>${w(4)}</h2><p>${w(5)}</p></div><ol class="setup-progress" aria-label="${esc(w(4))}">${[0,1,2,3].map(i=>`<li ${i===guided.step?'aria-current="step"':''} class="${i<guided.step?'complete':''}"><span>${i<guided.step?'✓':i+1}</span><b>${w(i)}</b></li>`).join('')}</ol><section class="setup-card"><div class="setup-step-heading"><small>${guided.step+1} / 4</small><h3>${w(guided.step)}</h3><p>${w([6,8,10,12][guided.step])}</p></div>${info}<div id="setupBody"></div><p id="setupError" class="setup-error" role="alert" ${guided.error?'':'hidden'}>${esc(guided.error)}</p><p class="setup-status" role="status">${guided.busy?esc(guided.progress||w(22)):''}</p><div class="setup-footer">${guided.step?`<button class="ghost" id="setupBack" ${guided.busy?'disabled':''}>${w(14)}</button>`:'<span></span>'}<button class="primary" id="setupNext" ${guided.busy?'disabled':''}>${guided.busy?w(22):w([7,9,11,13][guided.step])}</button></div></section><details class="setup-details"><summary>${w(18)}</summary><button type="button" class="ghost" id="setupCode">${esc(t('admin_generate_code'))}</button><div id="setupCodeOut" aria-live="polite"></div><pre id="logBox" class="log-box">${esc(logs)}</pre></details>`;
-  $('setupCode').disabled=guided.busy;
-  $('setupCode').onclick=async()=>{const button=$('setupCode');button.disabled=true;try{const material=await window.getAndroidUnlockMaterial();const out=c.querySelector('#setupCodeOut');if(out)out.textContent=material.code;}catch(e){guided.error=errText(e);redraw();}finally{button.disabled=false;}};
-  const body = $('setupBody');
-  if (guided.step === 0) body.innerHTML = `<details class="setup-help"><summary>${w(24)}</summary><p>${w(25)}</p><p>${esc(t('usb_help'))}</p></details>`;
-  if (guided.step === 1) body.innerHTML = `<p class="setup-note">${w(30)}</p><details class="setup-help"><summary>${w(26)}</summary><p>${w(27)}</p></details>`;
-  if (guided.step === 2) {
-    sections.Configuration(body);
-    body.classList.add('setup-filter');
-    body.querySelectorAll('.app-filter-group').forEach(group=>group.open=false);
-    body.querySelector('.app-filter-side')?.classList.add('setup-filter-options');
-    const side = body.querySelector('.app-filter-side');
-    if (side) {
-      const details = document.createElement('details');details.className='setup-help';
-      const summary = document.createElement('summary');summary.textContent=lang()==='fr'?'Autres applications':lang()==='en'?'Other apps':lang()==='he'?'יישומים נוספים':'נאָך אַפּס';
-      const field=side.querySelector('.field'),note=side.querySelector('p');
-      details.append(summary);if(field)details.append(field);if(note)details.append(note);
-      side.prepend(details);
-    }
-  }
-  if (guided.step === 3) {
-    const extra = parseExtraPackages(state.blocking.extra);
-    const packages = new Set([...state.blocking.packages,...extra.valid]);
-    body.innerHTML = `<div class="setup-review"><b>${packages.size}</b><span>${w(23)}</span></div><details class="setup-help"><summary>${w(23)}</summary><ul>${[...packages].map(pkg=>`<li>${esc(Object.values(appCatalog).flat().find(x=>x[1]===pkg)?.[0]||pkg)}</li>`).join('')}</ul></details>`;
-  }
-  $('setupBack')?.addEventListener('click',()=>move(guided.step-1));
-  $('setupNext').onclick = () => {
-    if (guided.step === 2) {
-      const extra = parseExtraPackages(state.blocking.extra);
-      if(extra.invalid.length){guided.error=t('extra_invalid')+extra.invalid.join(', ');redraw();return;}
-      move(3);return;
-    }
-    run(async () => {
-      if (guided.step === 0) {
-        if (!YiDreamAdb.supported) throw new Error('UNSUPPORTED');
-        if (!client.info) await client.connect(s=>{guided.progress=t({searching:'log_searching_device',connecting:'log_connecting',authenticating:'log_authenticating'}[s]);const status=c.querySelector('.setup-status');if(status)status.textContent=guided.progress;});
-        guided.step = guided.preparedSerial===client.info.serial ? 2 : 1;
-      } else if (guided.step === 1) {
-        const release = await fetchCurrentApk();
-        guided.preparedSerial = await preparePhone(client,release,phase=>{guided.progress=w(phase==='install'?19:20);const status=c.querySelector('.setup-status');if(status)status.textContent=guided.progress;});
-        log('Android', t('log_owner_activated'));guided.step = 2;
-      } else if (guided.step === 3) {
-        if (!client.info || client.info.serial!==guided.preparedSerial) throw new Error('NOT_CONNECTED');
-        const material=await window.getAndroidUnlockMaterial();
-        if (!client.info || client.info.serial!==guided.preparedSerial) throw new Error('NOT_CONNECTED');
-        const config=phoneConfiguration(state.blocking.packages,state.blocking.extra,material);
-        guided.progress=w(21);const status=c.querySelector('.setup-status');if(status)status.textContent=guided.progress;
-        await client.applyConfig(config,s=>log('Android',t({launching:'log_launching_app',sending:'log_sending_config',relaunching:'log_relaunching'}[s])));
-        if (!client.info || client.info.serial!==guided.preparedSerial) throw new Error('NOT_CONNECTED');
-        log('Android',t('log_config_applied'));guided.done=true;
-      }
-    });
-  };
+export function disposeAndroidWizard() {
+  wizard?.dispose();
+  wizard = null;
+}
+
+export async function disconnectAndroidWorkspace() {
+  disposeAndroidWizard();
+  await client.disconnect();
 }
