@@ -1,5 +1,12 @@
 // Account controls inherit the language chosen inside the signed-in Suite.
 const copy = {
+ 'Demandes d’accès': ['Access requests','בקשות גישה','צוטריט־בקשות'],
+ 'SITES ET APPLICATIONS': ['WEBSITES AND APPS','אתרים ואפליקציות','וועבזײַטן און אַפּס'],
+ 'Demande d’accès à une application': ['App access request','בקשת גישה לאפליקציה','בקשה פֿאַר צוטריט צו אַן אַפּ'],
+ 'Autoriser l’application': ['Allow app','אישור האפליקציה','דערלויבן די אַפּ'],
+ 'Les demandes d’applications seront disponibles après la mise à jour du service.': ['App requests will be available after the service update.','בקשות לאפליקציות יהיו זמינות לאחר עדכון השירות.','אַפּ־בקשות וועלן זײַן פֿאַראַן נאָך דער דערהײַנטיקונג פֿונעם דינסט.'],
+ 'Les décisions s’appliquent à la prochaine synchronisation du téléphone. Les règles de sites concernent le navigateur YiDream.': ['Decisions take effect when the phone next synchronizes. Site rules apply in the YiDream browser.','ההחלטות יחולו בסנכרון הבא של הטלפון. כללי האתרים חלים בדפדפן YiDream.','די באַשלוסן ווערן אָנווענדט בײַם קומענדיקן סינקראָניזירן. די וועבזײַט־כּללים גילטן אינעם YiDream בלעטערער.'],
+ 'Rechercher un site, une application ou un appareil': ['Search for a site, app or device','חיפוש אתר, אפליקציה או מכשיר','זוכן אַ וועבזײַט, אַן אַפּ אָדער אַ מיטל'],
  'Choisissez un appareil approuvé, renseignez ses coordonnées et partagez le code d’activation.': ['Choose an approved device, enter the contact details and share the activation code.','בחרו מכשיר שאושר, הזינו פרטי קשר ושתפו את קוד ההפעלה.','קלײַבט אַ באַשטעטיקטן דיווייס, לייגט אַרײַן די קאָנטאַקט אינפֿאָרמאַציע און טיילט דעם אַקטיוויזירונג־קאָד.'],
  'L’activation remplace l’accès précédent de ce téléphone. Les coordonnées servent au contact.': ['Activation replaces the previous access for this phone. The details are used to contact the user.','ההפעלה מחליפה את הגישה הקודמת לטלפון. הפרטים משמשים ליצירת קשר.','די אַקטיוויזירונג פֿאַרבײַט דעם פֿריִערדיקן צוטריט פֿאַר דעם טעלעפֿאָן. די אינפֿאָרמאַציע דינט צו קאָנטאַקטירן.'],
  'E-mail de contact': ['Contact email','דוא״ל ליצירת קשר','קאָנטאַקט אימעיל'],
@@ -54,6 +61,7 @@ export function translateAccountPanel(panel,language) {
  const walker=document.createTreeWalker(panel,NodeFilter.SHOW_TEXT),nodes=[];
  while(walker.nextNode())nodes.push(walker.currentNode);
  for(const node of nodes){const raw=node.nodeValue,source=raw.trim();node.nodeValue=raw.replace(source,accountText(source,language));}
+ for(const node of panel.querySelectorAll('[placeholder]'))node.setAttribute('placeholder',accountText(node.getAttribute('placeholder'),language));
  for(const node of panel.querySelectorAll('[aria-label]'))node.setAttribute('aria-label',accountText(node.getAttribute('aria-label'),language));
  const code = panel.querySelector('#pairCode');
  if (code) code.dir = 'ltr';

@@ -87,6 +87,8 @@ await db.exec('reset role');
 const migration = '20261111143137_device_policies_and_usb_activation.sql';
 await loadMigration(migration);
 await loadMigration(migration);
+const appRequestMigration = '20261112141920_offline_app_access_requests.sql';
+await loadMigration(appRequestMigration);
 
 async function act(role, uid = '', live = true, token = '') {
   await db.exec('reset role');
@@ -210,6 +212,50 @@ assert.equal(updated.revision, 3);
 assert.equal((await report(session.token, 1, true)).applied_revision, 1);
 assert.equal((await report(session.token, 3, true)).applied_revision, 3);
 
+const appRequest = '40000000-0000-4000-8000-000000000001';
+const pendingAppRequest = '40000000-0000-4000-8000-000000000002';
+const requestApp = (token, packageName, requestId, reason = '') => scalar(
+  'select public.yd_request_app_access($1,$2,$3,$4)', [token, packageName, reason, requestId]
+);
+const deviceAppRequests = async token =>
+  (await db.query('select * from public.yd_device_app_requests($1)', [token])).rows;
+const adminAppRequests = async () => (await db.query('select * from public.yd_admin_app_requests()')).rows;
+const reviewApp = (requestId, decision, note = '') => db.query(
+  'select public.yd_review_app_access($1,$2,$3)', [requestId, decision, note]
+);
+
+for (const packageName of ['com.android.vending', 'com.android.settings', 'com.yidream.mdm', 'com.invalid;package']) {
+  await assert.rejects(() => requestApp(session.token, packageName, appRequest), /INVALID_APP_REQUEST/);
+}
+assert.deepEqual(await requestApp(session.token, 'com.whatsapp', appRequest, 'Allow my installed app'), {});
+assert.deepEqual(await requestApp(session.token, 'com.example.other', appRequest), {});
+const [appRow] = await deviceAppRequests(session.token);
+assert.equal((await deviceAppRequests(session.token)).length, 1);
+assert.equal(appRow.package_name, 'com.whatsapp');
+assert.equal(appRow.status, 'pending');
+await assert.rejects(() => adminAppRequests(), /permission denied/);
+await assert.rejects(() => db.query('select * from private.yd_app_access_requests'), /permission denied/);
+
+await act('anon');
+await assert.rejects(() => requestApp(session.token, 'com.whatsapp', appRequest), /APP_ACCESS_DENIED/);
+await act('authenticated', legacyCustomer);
+assert.deepEqual(await deviceAppRequests(legacyDevice.token), []);
+await act('authenticated', adminB);
+assert.deepEqual(await adminAppRequests(), []);
+await assert.rejects(() => reviewApp(appRow.id, 'approved'), /APP_REQUEST_NOT_AVAILABLE/);
+await act('authenticated', adminA, false);
+await assert.rejects(() => adminAppRequests(), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+assert.equal((await adminAppRequests())[0].id, appRow.id);
+await reviewApp(appRow.id, 'approved', 'Available on this device');
+assert.equal((await adminPolicy(id)).apps['com.whatsapp'], true);
+await reviewApp(appRow.id, 'revoked');
+assert.equal((await adminPolicy(id)).apps['com.whatsapp'], false);
+await act('anon', '', true, session.app_token);
+assert.equal((await deviceAppRequests(session.token))[0].status, 'revoked');
+assert.deepEqual(await requestApp(session.token, 'com.example.pending', pendingAppRequest), {});
+const staleAppRow = (await deviceAppRequests(session.token)).find(r => r.client_request_id === pendingAppRequest);
+
 await db.exec('reset role');
 await db.query("update public.yd_device_links set app_session_expires_at=now()+interval '1 day' where device_id=$1", [id]);
 await act('anon');
@@ -250,7 +296,15 @@ await assert.rejects(() => redeem(inactiveIssuerClaim.code), /INVALID_ACCOUNT_CO
 
 await db.exec('reset role');
 await loadMigration(migration);
+await loadMigration(appRequestMigration);
 await act('authenticated', owner);
 assert.deepEqual((await adminPolicy(id)).sites, { 'safe.example': false });
+const replacementClaim = await issue(id, 'replacement@example.invalid');
+await act('anon');
+const replacement = await redeem(replacementClaim.code);
+await act('anon', '', true, replacement.app_token);
+assert.deepEqual(await deviceAppRequests(replacement.token), []);
+await act('authenticated', owner);
+await assert.rejects(() => reviewApp(staleAppRow.id, 'approved'), /APP_REQUEST_NOT_AVAILABLE/);
 await db.close();
-console.log('Device rules: USB identity, shop and session isolation, client assignment, approved activation, replay and expiry, policy delivery and site decisions passed.');
+console.log('Device rules: USB identity, shop and session isolation, client assignment, activation, policy delivery, and site and app decisions passed.');

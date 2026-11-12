@@ -1,18 +1,19 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
-import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady } from './mdm-model.js?v=20261030';
-import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261104';
-import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261111';
+import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady } from './mdm-model.js?v=20261112';
+import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261112';
+import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261112';
 import { checkPlayCatalog } from './mdm-play-updates.js?v=20261106';
 import { inspectApk } from './mdm-apk.js?v=20261030';
 const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
 const GPLAY_API='http://127.0.0.1:5000';
 const $=id=>document.getElementById(id),form=$('catalogForm');
-const accountLanguage=new URLSearchParams(location.search).get('lang')||localStorage.getItem('yidream-admin-language')||'en';
+const selectedLanguage=new URLSearchParams(location.search).get('lang')||localStorage.getItem('yidream-admin-language');
+const accountLanguage=['en','fr','he','yi'].includes(selectedLanguage)?selectedLanguage:'en';
 const accountCopy=value=>accountText(value,accountLanguage);
 translateAccountPanel($('pairPanel'),accountLanguage);
 translateAccountPanel($('requestsPanel'),accountLanguage);
 let devices=[],clients=[],requests=[],catalog=[],currentUser=null,isOwner=false,uploaded=null;
-let accountLoad=0,codeExpiryTimer=null;
+let accountLoad=0,workspaceLoad=0,codeExpiryTimer=null;
 let playCheckResults=new Map(),playCheckRun=0,playChecking=false,playAbort=null;
 let view=resolveView(location.search,location.hash);
 let embedded=false;
@@ -28,8 +29,8 @@ function showView(next){
   view=Object.hasOwn(VIEWS,next)?next:'home';
   for(const panel of document.querySelectorAll('[data-panel]'))panel.hidden=panel.dataset.panel!==view;
   for(const link of document.querySelectorAll('.nav-link')){const active=link.dataset.view===view;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
-  $('viewTitle').textContent=VIEWS[view];$('viewCaption').textContent=VIEWS[view];
-  document.title='YiDream · '+VIEWS[view];resizeParent();
+  $('viewTitle').textContent=accountCopy(VIEWS[view]);$('viewCaption').textContent=accountCopy(VIEWS[view]);
+  document.title='YiDream · '+accountCopy(VIEWS[view]);resizeParent();
   if(view==='pair'&&currentUser)void loadAppAccounts();
   else if(view!=='pair'&&currentUser)clearAccountCode();
 }
@@ -77,21 +78,25 @@ function renderRequests() {
     row.className = 'row';
     const heading = document.createElement('div');
     heading.className = 'request-heading';
-    let name;
-    try { name = new URL(request.site_url).hostname; }
-    catch { name = request.site_url; }
+    const isApp = Boolean(request.package_name);
+    let name = request.package_name;
+    if (!isApp) {
+      try { name = new URL(request.site_url).hostname; }
+      catch { name = request.site_url; }
+    }
     const wantsAllow = request.requested_allowed !== false;
     const labels = { pending: 'En attente', approved: 'Acceptée', rejected: 'Refusée', revoked: 'Révoquée' };
     heading.append(text('strong', name), text('span', labels[request.status] || request.status, 'pill ' + request.status));
     const device = devices.find(device => device.id === request.device_id);
     row.append(heading, text('small', deviceLabel(device || { name: 'Appareil' }, clients) + ' · ' +
       new Date(request.created_at).toLocaleString(accountLanguage)));
-    row.append(text('p', wantsAllow ? 'Demande d’autorisation' : 'Demande de blocage'));
+    row.append(text('p', isApp ? 'Demande d’accès à une application' : wantsAllow ? 'Demande d’autorisation' : 'Demande de blocage'));
     if (request.reason) row.append(text('p', request.reason));
     if (request.admin_note) row.append(text('p', request.admin_note));
     const actions = [];
     if (request.status === 'pending') {
-      actions.push(['approved', wantsAllow ? 'Autoriser le site' : 'Bloquer le site', 'primary']);
+      const approval = isApp ? 'Autoriser l’application' : wantsAllow ? 'Autoriser le site' : 'Bloquer le site';
+      actions.push(['approved', approval, 'primary']);
       actions.push(['rejected', 'Refuser', 'ghost']);
     } else if (wantsAllow && request.status === 'approved') {
       actions.push(['revoked', 'Révoquer l’autorisation', 'danger']);
@@ -110,7 +115,8 @@ function renderRequests() {
       for (const [decision, label, kind] of actions) {
         const action = button(label, kind);
         action.onclick = () => task(action, async () => {
-          check(await db.rpc('yd_review_site', { request_id: request.id, decision, note: note.value }));
+          const reviewRpc = isApp ? 'yd_review_app_access' : 'yd_review_site';
+          check(await db.rpc(reviewRpc, { request_id: request.id, decision, note: note.value }));
           await load();
           status('Décision enregistrée.');
         });
@@ -141,7 +147,92 @@ function renderCatalog(){
  }
  resizeParent();
 }
-async function load(){hidePlayUpdates();isOwner=false;$('ownerImports').hidden=true;$('baseControl').hidden=true;const session=check(await db.auth.getSession()).session;$('login').hidden=!!session;if(!session){currentUser=null;uploaded=null;accountLoad++;clearAccountCode();$('appAccounts').replaceChildren();$('catalogEditor').close();$('workspace').hidden=true;$('account').textContent='Espace administrateur';status('Connectez-vous pour retrouver vos appareils.');return;}currentUser=session.user;const role=check(await db.from('platform_admins').select('role').eq('user_id',currentUser.id).maybeSingle());if(!role || check(await db.rpc('is_platform_admin'))!==true){clearAccountCode();$('catalogEditor').close();$('workspace').hidden=true;status('Ce compte ne dispose pas d’un accès administrateur.',true);return;}isOwner=role.role==='owner'&&check(await db.rpc('is_platform_owner'))===true;$('ownerImports').hidden=!isOwner;const result=await Promise.all([db.from('devices').select('id,name,user_id,client_id,configuration_status').order('name'),db.from('clients').select('id,name'),db.from('yd_site_requests').select('*').order('created_at',{ascending:false}).limit(200),db.from('yd_catalog').select('*').order('name')]);[devices,clients,requests,catalog]=result.map(check);const selected=$('devices').value;const readyDevices=devices.filter(d=>d.configuration_status==='configured');$('devices').replaceChildren(...readyDevices.map(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=deviceLabel(d,clients);return o;}));if(readyDevices.some(d=>d.id===selected))$('devices').value=selected;$('pair').disabled=!readyDevices.length;$('pairHint').textContent=accountCopy(readyDevices.length?'Le code donne accès uniquement au téléphone choisi.':'Aucun appareil configuré. Préparez un téléphone avant de créer son code.');const count=requests.filter(r=>r.status==='pending').length;$('pendingCount').textContent=count;$('navPending').textContent=count;$('navPending').hidden=!count;$('appCount').textContent=catalog.filter(a=>a.enabled&&releaseReady(a)).length;$('deviceCount').textContent=devices.length;$('requestTotal').textContent=requests.length+' demandes';$('catalogTotal').textContent=catalog.length+' applications';$('account').textContent=currentUser.email;$('baseControl').hidden=!isOwner;renderRequests();renderCatalog();renderPlayUpdates();$('workspace').hidden=false;showView(view);status('');}
+async function load() {
+  const generation = ++workspaceLoad;
+  hidePlayUpdates();
+  isOwner = false;
+  $('ownerImports').hidden = true;
+  $('baseControl').hidden = true;
+  const session = check(await db.auth.getSession()).session;
+  if (generation !== workspaceLoad) return;
+  $('login').hidden = Boolean(session);
+  if (!session) {
+    currentUser = null;
+    uploaded = null;
+    accountLoad++;
+    clearAccountCode();
+    $('appAccounts').replaceChildren();
+    $('catalogEditor').close();
+    $('workspace').hidden = true;
+    $('account').textContent = 'Espace administrateur';
+    status('Connectez-vous pour retrouver vos appareils.');
+    return;
+  }
+
+  const user = session.user;
+  const role = check(await db.from('platform_admins').select('role').eq('user_id', user.id).maybeSingle());
+  const active = role && check(await db.rpc('is_platform_admin')) === true;
+  if (generation !== workspaceLoad) return;
+  if (!active) {
+    currentUser = null;
+    clearAccountCode();
+    $('catalogEditor').close();
+    $('workspace').hidden = true;
+    status('Ce compte ne dispose pas d’un accès administrateur.', true);
+    return;
+  }
+
+  const owner = role.role === 'owner' && check(await db.rpc('is_platform_owner')) === true;
+  const [deviceRows, clientRows, siteRows, catalogRows, appRows] = await Promise.all([
+    db.from('devices').select('id,name,user_id,client_id,configuration_status').order('name'),
+    db.from('clients').select('id,name'),
+    db.from('yd_site_requests').select('*').order('created_at', { ascending: false }).limit(200),
+    db.from('yd_catalog').select('*').order('name'),
+    db.rpc('yd_admin_app_requests')
+  ]);
+  if (generation !== workspaceLoad) return;
+  [devices, clients, catalog] = [deviceRows, clientRows, catalogRows].map(check);
+  const siteRequests = check(siteRows);
+  // A console deployment can briefly precede the database migration.
+  const appRequestsUnavailable = appRows.error?.code === 'PGRST202';
+  const appRequests = appRequestsUnavailable ? [] : check(appRows);
+  requests = [...siteRequests, ...appRequests].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  currentUser = user;
+  isOwner = owner;
+  $('ownerImports').hidden = !isOwner;
+
+  const selected = $('devices').value;
+  const readyDevices = devices.filter(d => d.configuration_status === 'configured');
+  $('devices').replaceChildren(...readyDevices.map(device => {
+    const option = document.createElement('option');
+    option.value = device.id;
+    option.textContent = deviceLabel(device, clients);
+    return option;
+  }));
+  if (readyDevices.some(device => device.id === selected)) $('devices').value = selected;
+  $('pair').disabled = !readyDevices.length;
+  $('pairHint').textContent = accountCopy(readyDevices.length
+    ? 'Le code donne accès uniquement au téléphone choisi.'
+    : 'Aucun appareil configuré. Préparez un téléphone avant de créer son code.');
+
+  const pending = requests.filter(request => request.status === 'pending').length;
+  $('pendingCount').textContent = pending;
+  $('navPending').textContent = pending;
+  $('navPending').hidden = !pending;
+  $('appCount').textContent = catalog.filter(app => app.enabled && releaseReady(app)).length;
+  $('deviceCount').textContent = devices.length;
+  $('requestTotal').textContent = new Intl.NumberFormat(accountLanguage).format(requests.length);
+  $('catalogTotal').textContent = catalog.length + ' applications';
+  $('account').textContent = user.email;
+  $('baseControl').hidden = !isOwner;
+
+  renderRequests();
+  renderCatalog();
+  renderPlayUpdates();
+  $('workspace').hidden = false;
+  showView(view);
+  status(appRequestsUnavailable ? 'Les demandes d’applications seront disponibles après la mise à jour du service.' : '');
+}
 async function loadAppAccounts(){
  const generation=++accountLoad;
  const list=$('appAccounts'),message=$('appAccountsStatus');

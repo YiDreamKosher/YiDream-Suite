@@ -3,7 +3,7 @@ export const MDM_VIEWS = Object.freeze(['home', 'catalog', 'requests', 'pair']);
 export const MDM_TITLES = Object.freeze({
   home: 'Accueil',
   catalog: 'Boutique d’applications',
-  requests: 'Demandes de sites',
+  requests: 'Demandes d’accès',
   pair: 'Associer un appareil'
 });
 
@@ -26,7 +26,7 @@ export function mdmFrameSource(view, language = 'fr', pathname = typeof location
     embed: 'classic',
     view,
     lang: ['fr', 'en', 'he', 'yi'].includes(language) ? language : 'fr',
-    v: '20261106-accounts'
+    v: '20261112-requests'
   });
   const prefix = /\/admin(?:\/|\/index\.html)$/.test(pathname) ? '../' : './';
   return prefix + 'mdm-admin.html?' + params;
