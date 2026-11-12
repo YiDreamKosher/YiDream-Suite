@@ -3,6 +3,7 @@ import './application-form.css';
 import * as cloud from './cloud-admin.js';
 import { renderAndroidWizard, disposeAndroidWizard, disconnectAndroidWorkspace, knownAppPackages } from './ui-android.js';
 import { mountDeviceControls } from './device-controls.js';
+import { mountDeviceEnrollment } from './device-enrollment.js';
 import { deviceCopy } from './device-control-copy.js';
 import { mountMaintenanceCode } from './maintenance-code.js';
 import './device-controls.css';
@@ -14,6 +15,11 @@ import { MDM_TITLES, mdmFrameSource, mdmViewFromHash, mdmPage, mdmViewForPage, t
 import './mdm-shell.css';
 const $=(s,r=document)=>r.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app=$('#app');
+let deviceEnrollment;
+function disposeDeviceEnrollment() {
+ deviceEnrollment?.dispose();
+ deviceEnrollment = null;
+}
 const adminLanguage=localStorage.getItem('yidream-admin-language')||'en';
 window.getLang=()=>adminLanguage;
 window.getAndroidUnlockMaterial=()=>cloud.getAndroidUnlockMaterial();
@@ -144,6 +150,7 @@ function welcomeMarkup(){return `<section class="suite-welcome"><div><span class
 
 const appNavigationStyle=document.createElement('style');appNavigationStyle.textContent=`.app-links{display:grid;gap:14px;padding:0 4px 16px}.app-link-group{display:grid;gap:3px}.app-group-label{padding:0 9px 5px;color:#8793a7;font-size:9px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.app-link{position:relative;width:100%;min-height:40px;display:flex;align-items:center;gap:10px;padding:8px 9px;border:1px solid transparent;border-radius:10px;background:transparent;color:#536178;text-decoration:none;text-align:left;font:650 11px/1.25 Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;cursor:pointer;transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease}.app-link:hover,.app-link.active,.app-link[aria-current="page"]{background:#f1edff;border-color:#e6defd;color:#6348c5}.app-link:hover{transform:translateX(2px)}.app-link.active,.app-link[aria-current="page"]{font-weight:800}.app-link-icon{width:24px;height:24px;display:grid;place-items:center;flex:none;border-radius:8px;background:#f4f6fa;color:#64748b;font-size:14px}.app-link:hover .app-link-icon,.app-link.active .app-link-icon,.app-link[aria-current="page"] .app-link-icon{background:#fff;color:#7257d6}.app-link-icon img{width:100%;height:100%;object-fit:contain}.app-link small{margin-left:auto;padding:3px 6px;border-radius:6px;background:#fff4dc;color:#98712e;font-size:8px;font-weight:800}.app-link.coming{opacity:.76;cursor:not-allowed}.app-link-arrow{margin-left:auto;color:#98a2b4;font-size:15px}.app-link-apple{position:relative;font-size:0!important;width:15px;height:16px;margin:0 4px;border-radius:48% 48% 44% 44%;background:#172846!important}.app-link-apple:before{content:"";position:absolute;right:-3px;top:-2px;width:6px;height:4px;border-radius:6px 0;background:#172846;transform:rotate(-38deg)}.app-link:focus-visible{outline:3px solid #9e8bea;outline-offset:2px}`;document.head.append(appNavigationStyle);
 function authScreen(mode='login',error=''){
+ disposeDeviceEnrollment();
  const register=mode==='register';
  app.innerHTML=`<div class="auth-wrap"><section class="auth"><button class="link" id="authBack" style="margin:0 0 12px;padding:0">← Retour à la présentation</button><a href="${portalHomeHref()}" class="brand" style="padding:0 0 20px"><img src="${logoUrl}" alt=""> YiDream <span style="color:#73819a;font-weight:500">Suite</span></a><h1>${register?'Demander un accès administrateur':'Connexion administrateur'}</h1><p>${register?'Créez votre compte puis envoyez votre candidature. L’accès sera activé après examen.':'Connectez-vous pour gérer les appareils et les comptes autorisés.'}</p>
  <div id="authError" class="msg">${esc(error)}</div>
@@ -171,6 +178,7 @@ function authScreen(mode='login',error=''){
  };
 }
 function publicPortal(){
+ disposeDeviceEnrollment();
  app.innerHTML=`<div class="auth-wrap" style="display:block;padding:0"><header style="max-width:1120px;margin:auto;padding:22px 24px;display:flex;justify-content:space-between;align-items:center;gap:16px"><a class="brand" href="${portalHomeHref()}" style="padding:0"><img src="${logoUrl}" alt="">YiDream <span style="color:#73819a;font-weight:500">Suite</span></a><div class="actions"><button class="button" id="portalLogin">Se connecter</button><button class="button primary" id="portalApply">Postuler comme administrateur</button></div></header><main style="max-width:1120px;margin:0 auto;padding:72px 24px"><span class="role">PORTAIL ADMINISTRATEUR</span><h1 style="max-width:760px;font-size:clamp(36px,6vw,62px);margin-top:22px">Gérez les appareils YiDream dans un espace sécurisé.</h1><p style="max-width:700px;color:#73819a;font-size:18px;line-height:1.65">La Suite réunit la préparation Android, le suivi des appareils et la gestion des clients et des magasins. Les outils de configuration sont réservés aux administrateurs approuvés.</p><div class="actions" style="margin:26px 0 45px"><button class="button primary" id="portalAccess">Accéder à la console</button><button class="button" id="portalApplySecond">Déposer une candidature</button></div><div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));max-width:900px"><div class="stat"><label>Préparation Android</label><strong style="font-size:20px">Disponible</strong><small>Configuration depuis un appareil raccordé en USB</small></div><div class="stat"><label>Accès contrôlé</label><strong style="font-size:20px">Sur approbation</strong><small>Chaque candidature est examinée par YiDream</small></div></div><section class="panel" style="max-width:900px;margin-top:22px;padding:24px"><h2>Comment rejoindre l’espace ?</h2><p style="color:#73819a;line-height:1.6">Connectez-vous avec votre compte Google ou votre adresse e-mail, indiquez votre boutique et envoyez votre candidature. En attendant l’approbation, les appareils, clients et fonctions de configuration restent inaccessibles.</p><button class="button primary" id="portalApplyThird">Postuler pour devenir administrateur</button></section></main></div>`;
  const login=()=>authScreen('login'), apply=()=>authScreen('register');
  $('#portalLogin').onclick=login;$('#portalAccess').onclick=login;$('#portalApply').onclick=apply;$('#portalApplySecond').onclick=apply;$('#portalApplyThird').onclick=apply;
@@ -207,6 +215,7 @@ function shell(){
 
 let hideMaintenanceCode = () => {};
 function renderOwnerPortal(){
+ disposeDeviceEnrollment();
  hideMaintenanceCode();
  if(state.ownerPage!=='android')disposeAndroidWizard();
  const d=state.ownerData||{applications:[],admins:[],stores:[],clients:[],devices:[],logs:[]};
@@ -358,6 +367,7 @@ function applicationRows(items){return items.length?items.map(x=>`<div class="ac
 async function reloadOwner(){state.ownerData=await withTimeout(cloud.loadOwnerData(),'des données de gestion');renderOwnerPortal()}
 function head(title,sub,action=''){return `<div class="heading"><div><h1>${title}</h1><p>${sub}</p></div>${action}</div>`}
 function render(){
+ disposeDeviceEnrollment();
  if(!state.data)return;
  if(state.page!=='android')disposeAndroidWizard();
  shell();const c=$('#content'),d=state.data;
@@ -432,6 +442,8 @@ function renderDeviceDetails(device) {
     <button type="button" class="button" data-copy-device-id>${copy('copy')}</button></div>
   </div>
   ${device.note ? `<div class="device-note"><small>NOTE INTERNE</small><p>${esc(device.note)}</p></div>` : ''}
+  ${isAndroid && device.configuration_status === 'configured'
+    ? '<section class="device-enrollment" data-device-enrollment></section>' : ''}
   <div data-device-controls></div>
   ${canApprove ? `<p class="small">${copy('approvalHint')}</p>
     <button type="button" class="button primary" data-approve-record>${copy('approval')}</button>` : ''}
@@ -447,6 +459,10 @@ function bindDeviceDetails(data, rerender, reload) {
  const device = data.devices.find(device => device.id === state.selectedDeviceId);
  if (!detail || !device) return;
  const copy = key => deviceCopy(adminLanguage, key);
+ const enrollment = detail.querySelector('[data-device-enrollment]');
+ if (enrollment) deviceEnrollment = mountDeviceEnrollment(enrollment, {
+  deviceId: device.id, language: adminLanguage, api: cloud
+ });
  mountDeviceControls(detail.querySelector('[data-device-controls]'), {
   device, clients: data.clients, language: adminLanguage, packages: knownAppPackages, api: cloud,
   onAssignment(clientId) {
@@ -515,6 +531,7 @@ function renderClients(c,d){
 }
 function renderActivity(c,d){c.innerHTML=head('Journal d’activité','Actions enregistrées dans votre espace.')+`<section class="panel table-wrap">${d.logs.length?`<table class="table"><thead><tr><th>Action</th><th>Date</th></tr></thead><tbody>${d.logs.map(x=>`<tr><td>${esc(x.action)}</td><td>${new Date(x.created_at).toLocaleString('fr-FR')}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Aucune activité pour le moment.</div>'}</section>`}
 function suspendedScreen(){
+ disposeDeviceEnrollment();
  app.innerHTML='<div class="auth-wrap"><section class="auth"><div class="brand"><img src="'+logoUrl+'" alt=""> YiDream <span style="color:#73819a;font-weight:500">Suite</span></div><h1>Accès administrateur suspendu</h1><p>Le propriétaire YiDream a suspendu ce compte. Les données et appareils restent conservés, mais les actions administrateur sont bloquées. Contacte le propriétaire pour demander le rétablissement de l’accès.</p><button class="button primary" id="suspendedLogout">Se déconnecter</button></section></div>';
  const button=$('#suspendedLogout');if(button)button.onclick=async()=>{await cloud.signOut();state.session=null;authScreen('login')};
 }

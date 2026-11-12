@@ -520,5 +520,66 @@ assert.deepEqual(maintenance, { code: material.code, date: material.date });
 assert.match(maintenance.code, /^[0-9A-F]{6}$/);
 assert.match(maintenance.date, /^\d{4}-\d{2}-\d{2}$/);
 
+// USB delivery does not confirm activation. Only the exact redeemed attempt and
+// a report from its current credential can confirm synchronization.
+await db.exec('reset role');
+const enrollmentMigration = '20261112175239_confirm_device_activation.sql';
+await loadMigration(enrollmentMigration);
+await loadMigration(enrollmentMigration);
+const enrollmentStatus = (target = id) => scalar('select public.yd_admin_device_enrollment($1)', [target]);
+const issueEnrollment = (target = id, address = null, number = null) =>
+  scalar('select public.yd_admin_issue_device_activation($1,$2,$3)', [target, address, number]);
+
+await act('anon');
+await assert.rejects(() => enrollmentStatus(), /permission denied/);
+await assert.rejects(() => issueEnrollment(), /permission denied/);
+await act('authenticated', adminB);
+await assert.rejects(() => enrollmentStatus(), /DEVICE_NOT_AVAILABLE/);
+await assert.rejects(() => issueEnrollment(), /DEVICE_NOT_AVAILABLE/);
+assert.equal((await enrollmentStatus(deviceB)).can_issue, false);
+await assert.rejects(() => issueEnrollment(deviceB), /ACCOUNT_RECOVERY_UNAVAILABLE/);
+await act('authenticated', adminA);
+assert.equal((await enrollmentStatus()).state, 'linked');
+assert.equal((await enrollmentStatus()).needs_contact, false);
+const superseded = await issueEnrollment();
+const recovery = await issueEnrollment(id, 'ignored@example.invalid', '+33123456780');
+assert.notEqual(recovery.activation_id, superseded.activation_id);
+const beforeRedemption = await enrollmentStatus();
+assert.equal(beforeRedemption.pending_activation_id, recovery.activation_id);
+assert.equal(beforeRedemption.redeemed_activation_id, null);
+assert.equal(beforeRedemption.code, undefined);
+await act('anon', '', true, nextPhone.app_token);
+assert.equal((await access(nextPhone.app_token)).account.id, nextAccount.id);
+await assert.rejects(() => redeem(superseded.code), /INVALID_ACCOUNT_CODE/);
+const recoveredPhone = await redeem(recovery.code);
+assert.equal(recoveredPhone.device_id, id);
+assert.equal(recoveredPhone.account.id, nextAccount.id);
+await assert.rejects(() => access(nextPhone.app_token), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+const receipt = await enrollmentStatus();
+assert.equal(receipt.pending_activation_id, null);
+assert.equal(receipt.redeemed_activation_id, recovery.activation_id);
+assert.equal(receipt.last_sync_at, null);
+await act('anon', '', true, recoveredPhone.app_token);
+const recoveredPolicy = await phonePolicyV2(recoveredPhone.token);
+await reportV2(recoveredPhone.token, recoveredPolicy.revision, true);
+await act('authenticated', adminA);
+assert.ok(Number.isFinite(Date.parse((await enrollmentStatus()).last_sync_at)));
+
+const fresh = await register(null, 'fixture-usb-enrollment-fresh');
+await assert.rejects(() => enrollmentStatus(fresh.device_id), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', owner);
+await scalar('select public.set_device_configured($1,true)', [fresh.device_id]);
+await act('authenticated', adminA);
+assert.equal((await enrollmentStatus(fresh.device_id)).state, 'unlinked');
+assert.equal((await enrollmentStatus(fresh.device_id)).needs_contact, true);
+await assert.rejects(() => issueEnrollment(fresh.device_id), /INVALID_CONTACT/);
+const firstActivation = await issueEnrollment(fresh.device_id, 'new-device@example.invalid', phone);
+await act('anon');
+const firstPhone = await redeem(firstActivation.code);
+assert.equal(firstPhone.device_id, fresh.device_id);
+await act('authenticated', adminA);
+assert.equal((await enrollmentStatus(fresh.device_id)).redeemed_activation_id, firstActivation.activation_id);
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
