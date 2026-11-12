@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeRuleTarget, normalizeSiteExpiry } from '../src/device-controls.js';
 import { YiDreamAdb } from '../src/adb.js';
+import { enrollmentProgress } from '../src/device-enrollment.js';
+
+test('activation confirmation matches the issued attempt and a subsequent phone sync', () => {
+  const attempt = { id: 'current-attempt' };
+  const oldSync = '2026-11-12T10:00:00Z';
+  assert.equal(enrollmentProgress({ pending_activation_id: attempt.id, last_sync_at: oldSync }, attempt), 'enrollmentWaiting');
+  assert.equal(enrollmentProgress({ redeemed_activation_id: 'other', last_sync_at: oldSync }, attempt), 'enrollmentReplaced');
+  assert.equal(enrollmentProgress({ redeemed_activation_id: attempt.id, last_sync_at: null }, attempt), 'enrollmentRedeemed');
+  assert.equal(enrollmentProgress({ redeemed_activation_id: attempt.id, last_sync_at: oldSync }, attempt), 'enrollmentSynced');
+});
 
 test('site rules are canonical domains and reject ambiguous or unsafe URLs', () => {
   assert.equal(normalizeRuleTarget('site', 'https://Example.Org./some/path'), 'example.org');

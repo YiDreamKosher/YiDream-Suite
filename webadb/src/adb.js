@@ -117,9 +117,15 @@ export class YiDreamAdb {
     const connected = () => {
       if (this.adb !== adb) throw new Error('NOT_CONNECTED');
     };
-    const launch = ['monkey', '-p', CONFIG.appPackage, '-c', 'android.intent.category.LAUNCHER', '1'];
+    const launch = async () => {
+      const result = await this.sh(['am', 'start', '-W', '-n', CONFIG.appPackage + '/.MainActivity']);
+      if ((result.exitCode !== 0 && result.exitCode !== null) ||
+          /(?:Error|Exception):|Status:\s*timeout/i.test(result.out)) {
+        throw new Error('CONFIGURATION_NOT_CONFIRMED');
+      }
+    };
     onStep('launching');
-    await this.sh(launch);
+    await launch();
     await sleep(2000);
     connected();
     onStep('sending');
@@ -134,7 +140,7 @@ export class YiDreamAdb {
     onStep('relaunching');
     await this.sh(['am', 'force-stop', CONFIG.appPackage]);
     connected();
-    await this.sh(launch);
+    await launch();
   }
 
   async confirmConfiguration(serial) {

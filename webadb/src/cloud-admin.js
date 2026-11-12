@@ -160,9 +160,14 @@ export function assignDeviceClient(id, clientId) {
   return deviceRpc('yd_assign_device_client', { target_device: id, target_client: clientId || null });
 }
 
-export function issueAppActivation(id, email, phone) {
-  return deviceRpc('yd_issue_app_activation', {
-    target_device: id, contact_email: email.trim(), contact_phone: phone.trim().replace(/[\s().-]/g, '')
+export function loadDeviceEnrollment(id) {
+  return deviceRpc('yd_admin_device_enrollment', { target_device: id });
+}
+
+export function issueDeviceActivation(id, email, phone) {
+  return deviceRpc('yd_admin_issue_device_activation', {
+    target_device: id, contact_email: email.trim() || null,
+    contact_phone: phone.trim().replace(/[\s().-]/g, '') || null
   });
 }
 

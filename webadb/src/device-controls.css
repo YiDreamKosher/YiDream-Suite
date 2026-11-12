@@ -79,6 +79,29 @@
   margin-block-start: 16px;
 }
 
+.device-enrollment {
+  margin-block: 16px;
+  padding-block: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.device-enrollment-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.device-enrollment-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.device-enrollment .setup-contact input {
+  width: 100%;
+}
+
 .setup-record-name,
 .device-record-id > small,
 .device-note > small {
