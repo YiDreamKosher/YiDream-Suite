@@ -9,3 +9,22 @@ export function parsePlayUrl(value){const url=new URL(value);if(url.protocol!=='
 export function deviceLabel(device,clients){const owner=clients.find(x=>x.id===device.client_id)?.name;return `${device.name} · ${owner||'Propriétaire non renseigné'}`;}
 export function matchesRequest(request,device,query,filter){return(filter==='all'||request.status===filter)&&`${request.package_name || request.site_url || ''} ${device}`.toLocaleLowerCase('fr').includes(query.trim().toLocaleLowerCase('fr'));}
 export function releaseReady(app){return /^https:\/\//.test(app.apk_url||'')&&/^[0-9a-f]{64}$/i.test(app.sha256||'')&&Number.isSafeInteger(Number(app.version_code))&&Number(app.version_code)>0;}
+
+
+export function isDeviceId(value) {
+  return /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
+}
+
+export function siteRequestWindow(request, now = Date.now()) {
+  if (request.package_name || request.requested_allowed === false) return null;
+  const approvedUntil = Date.parse(request.allowed_until);
+  if (request.status === 'approved' && Number.isFinite(approvedUntil)) {
+    return { kind: approvedUntil > now ? 'approved' : 'expired', until: approvedUntil };
+  }
+  const requestedUntil = Date.parse(request.requested_until);
+  if (Number.isFinite(requestedUntil)) {
+    return { kind: requestedUntil > now ? 'requested' : 'expired', until: requestedUntil };
+  }
+  if (Number(request.requested_hours) === 24) return { kind: 'day' };
+  return null;
+}

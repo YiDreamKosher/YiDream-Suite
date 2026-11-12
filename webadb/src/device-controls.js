@@ -21,6 +21,18 @@ export function normalizeRuleTarget(kind, input) {
   }
 }
 
+export function normalizeSiteExpiry(localDateTime, now = Date.now()) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(localDateTime);
+  if (!match) return null;
+  const date = new Date(localDateTime);
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  const timestamp = date.getTime();
+  if (!(timestamp > now && timestamp <= now + 365 * 86_400_000) ||
+      date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day ||
+      date.getHours() !== hour || date.getMinutes() !== minute) return null;
+  return date.toISOString();
+}
+
 export function mountDeviceControls(host, options) {
   const { device, clients, language, packages, api } = options;
   const copy = key => deviceCopy(language, key);
@@ -52,15 +64,19 @@ export function mountDeviceControls(host, options) {
       <datalist id="device-app-packages">${packages.map(([label, name]) =>
         `<option value="${escape(name)}" label="${escape(label)}"></option>`).join('')}</datalist>
       <label><span class="device-visually-hidden">${copy('addRule')}</span><select name="action">
-        <option value="allow">${copy('allow')}</option><option value="block">${copy('block')}</option>
+        <option value="allow">${copy('allow')}</option><option value="temporary">${copy('temporaryAllow')}</option>
+        <option value="block">${copy('block')}</option>
       </select></label>
       <button type="submit" class="button primary">${copy('addRule')}</button>
+      <label class="device-rule-expiry" data-rule-expiry hidden>${copy('expiry')}
+        <input name="expires" type="datetime-local"></label>
     </form>
   </section>` : ''}`;
 
   function failure(error) {
     if (['PGRST202', 'PGRST205', '42P01', '42703'].includes(error?.code)) return copy('serviceMissing');
-    if (/DEVICE_NOT_AVAILABLE|APP_ACCESS_DENIED/i.test(error?.message || '')) return copy('unavailableDevice');
+    if (/DEVICE_NOT_AVAILABLE|APP_ACCESS_DENIED|CONFIGURED_DEVICE_REQUIRED/i.test(error?.message || '')) return copy('unavailableDevice');
+    if (error?.message === 'INVALID_SITE_WINDOW') return copy('invalidExpiry');
     return copy('retry');
   }
 
@@ -110,8 +126,17 @@ export function mountDeviceControls(host, options) {
     if (Number.isFinite(synchronized)) {
       status.textContent += ' · ' + copy('lastSync') + ' ' + new Date(synchronized).toLocaleString(language);
     }
+    const siteRules = new Map(Object.entries(policy.sites || {}));
+    const temporary = new Map();
+    for (const [target, expiresAt] of Object.entries(policy.temporary_sites || {})) {
+      const expiry = Date.parse(expiresAt);
+      if (expiry > Date.now()) {
+        temporary.set(target, expiry);
+        siteRules.set(target, true);
+      }
+    }
     const entries = Object.entries(policy.apps || {}).map(([target, allowed]) => ['app', target, allowed])
-      .concat(Object.entries(policy.sites || {}).map(([target, allowed]) => ['site', target, allowed]));
+      .concat(Array.from(siteRules, ([target, allowed]) => ['site', target, allowed]));
     list.replaceChildren();
     if (!entries.length) {
       const paragraph = document.createElement('p');
@@ -127,11 +152,15 @@ export function mountDeviceControls(host, options) {
       label.title = target;
       const stateLabel = document.createElement('span');
       stateLabel.className = 'device-rule-state';
-      stateLabel.textContent = copy(allowed ? 'allowed' : 'blocked');
+      const expiresAt = kind === 'site' ? temporary.get(target) : null;
+      const permanentlyAllowed = kind === 'site' && policy.sites?.[target] === true;
+      stateLabel.textContent = expiresAt && !permanentlyAllowed
+        ? copy('allowedUntil') + ' ' + new Date(expiresAt).toLocaleString(language)
+        : copy(allowed ? 'allowed' : 'blocked');
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'button';
-      toggle.textContent = copy(allowed ? 'block' : 'allow');
+      toggle.textContent = copy(expiresAt ? 'blockPermanently' : allowed ? 'block' : 'allow');
       toggle.setAttribute('aria-label', toggle.textContent + ' ' + label.textContent);
       toggle.onclick = () => runPolicy(() => api.setDeviceRule(device.id, kind, target, !allowed));
       row.append(label, stateLabel, toggle);
@@ -161,6 +190,22 @@ export function mountDeviceControls(host, options) {
     return false;
   }
 
+  const expiryLabel = form.querySelector('[data-rule-expiry]');
+  const expiryInput = form.elements.expires;
+  const action = form.elements.action;
+  const temporaryOption = action.querySelector('[value="temporary"]');
+
+  function updateExpiryField() {
+    const app = form.elements.kind.value === 'app';
+    temporaryOption.hidden = temporaryOption.disabled = app;
+    if (app && action.value === 'temporary') action.value = 'allow';
+    const temporary = action.value === 'temporary';
+    expiryLabel.hidden = !temporary;
+    expiryInput.required = temporary;
+    if (!temporary) expiryInput.value = '';
+  }
+
+  action.addEventListener('change', updateExpiryField);
   form.elements.kind.addEventListener('change', () => {
     const input = form.elements.target;
     const app = form.elements.kind.value === 'app';
@@ -168,6 +213,7 @@ export function mountDeviceControls(host, options) {
     input.placeholder = app ? 'com.example.app' : 'example.org';
     if (app) input.setAttribute('list', 'device-app-packages');
     else input.removeAttribute('list');
+    updateExpiryField();
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -177,9 +223,20 @@ export function mountDeviceControls(host, options) {
       setError(copy('invalidTarget'));
       return;
     }
-    const allowed = form.elements.action.value === 'allow';
-    if (await runPolicy(() => api.setDeviceRule(device.id, kind, target, allowed))) {
+    let save;
+    if (kind === 'site' && action.value === 'temporary') {
+      const expiresAt = normalizeSiteExpiry(expiryInput.value);
+      if (!expiresAt) {
+        setError(copy('invalidExpiry'));
+        return;
+      }
+      save = () => api.setTemporarySiteRule(device.id, target, expiresAt);
+    } else {
+      save = () => api.setDeviceRule(device.id, kind, target, action.value === 'allow');
+    }
+    if (await runPolicy(save)) {
       form.elements.target.value = '';
+      expiryInput.value = '';
     }
   });
   refresh.onclick = () => runPolicy(() => api.loadDevicePolicy(device.id));

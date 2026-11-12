@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
-import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady } from './mdm-model.js?v=20261112';
+import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady, siteRequestWindow, isDeviceId } from './mdm-model.js?v=20261112-account-windows';
 import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261112';
-import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261112';
+import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261112-account-windows';
 import { checkPlayCatalog } from './mdm-play-updates.js?v=20261106';
 import { inspectApk } from './mdm-apk.js?v=20261030';
 const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
@@ -12,8 +12,10 @@ const accountLanguage=['en','fr','he','yi'].includes(selectedLanguage)?selectedL
 const accountCopy=value=>accountText(value,accountLanguage);
 translateAccountPanel($('pairPanel'),accountLanguage);
 translateAccountPanel($('requestsPanel'),accountLanguage);
+for(const element of document.querySelectorAll('[data-view="pair"]'))translateAccountPanel(element,accountLanguage);
 let devices=[],clients=[],requests=[],catalog=[],currentUser=null,isOwner=false,uploaded=null;
 let accountLoad=0,workspaceLoad=0,codeExpiryTimer=null;
+let linkAccount=null,linkGeneration=0;
 let playCheckResults=new Map(),playCheckRun=0,playChecking=false,playAbort=null;
 let view=resolveView(location.search,location.hash);
 let embedded=false;
@@ -32,7 +34,7 @@ function showView(next){
   $('viewTitle').textContent=accountCopy(VIEWS[view]);$('viewCaption').textContent=accountCopy(VIEWS[view]);
   document.title='YiDream · '+accountCopy(VIEWS[view]);resizeParent();
   if(view==='pair'&&currentUser)void loadAppAccounts();
-  else if(view!=='pair'&&currentUser)clearAccountCode();
+  else if(view!=='pair')closeAccountLink();
 }
 function navigate(next){
   if(!Object.hasOwn(VIEWS,next))return;
@@ -62,7 +64,22 @@ const button=(label,kind='secondary')=>{const b=document.createElement('button')
 const text=(tag,value,className)=>{const e=document.createElement(tag);e.textContent=accountCopy(value);if(className)e.className=className;return e;};
 function empty(parent,title,description){const box=document.createElement('div');box.className='empty';box.append(text('div','◎','empty-symbol'),text('strong',title),text('p',description));parent.append(box);}
 function isCatalogSchemaError(e){return e?.code==='PGRST204'||(e?.message||'').includes("'is_base' column of 'yd_catalog'");}
-function errorMessage(e){return isCatalogSchemaError(e)?'La base YiDream doit être mise à jour avant d’utiliser la boutique.':(['PGRST202','PGRST205','42P01','42703'].includes(e.code)?'La mise à jour du service MDM doit être activée par le responsable de votre espace.':(e.message||'Connexion impossible. Réessayez.'));}
+function errorMessage(error) {
+  if (isCatalogSchemaError(error)) return 'La base YiDream doit être mise à jour avant d’utiliser la boutique.';
+  if (['PGRST202', 'PGRST205', '42P01', '42703'].includes(error.code)) {
+    return 'La mise à jour du service MDM doit être activée par le responsable de votre espace.';
+  }
+  const messages = {
+    INVALID_CONTACT: 'Vérifiez l’e-mail et saisissez un numéro avec son indicatif international.',
+    APP_ACCOUNT_NOT_AVAILABLE: 'Ce compte ne peut plus être associé. Actualisez la liste.',
+    APP_ACCOUNT_ALREADY_LINKED: 'Ce compte est déjà associé à un autre appareil.',
+    APP_ACCESS_DENIED: 'Cette opération n’est pas disponible pour ce compte ou cet appareil.',
+    CONFIGURED_DEVICE_REQUIRED: 'Choisissez l’identifiant d’un appareil Android configuré dans votre espace.',
+    SITE_WINDOW_EXPIRED: 'La date de fin souhaitée est passée.',
+    SITE_REQUEST_NOT_AVAILABLE: 'Cette demande a changé ou n’est plus disponible. Actualisez la liste.'
+  };
+  return messages[error.message] || error.message || 'Connexion impossible. Réessayez.';
+}
 async function task(b,operation){if(b)b.disabled=true;try{await operation();}catch(e){status(errorMessage(e),true,isCatalogSchemaError(e));}finally{if(b)b.disabled=false;}}
 function renderRequests() {
   const container = $('requests');
@@ -85,22 +102,32 @@ function renderRequests() {
       catch { name = request.site_url; }
     }
     const wantsAllow = request.requested_allowed !== false;
+    const timing = siteRequestWindow(request);
+    const expired = timing?.kind === 'expired';
     const labels = { pending: 'En attente', approved: 'Acceptée', rejected: 'Refusée', revoked: 'Révoquée' };
-    heading.append(text('strong', name), text('span', labels[request.status] || request.status, 'pill ' + request.status));
+    const statusLabel = expired && request.status === 'approved' ? 'Expirée' : labels[request.status] || request.status;
+    heading.append(text('strong', name), text('span', statusLabel, 'pill ' + (expired && request.status === 'approved' ? 'revoked' : request.status)));
     const device = devices.find(device => device.id === request.device_id);
     row.append(heading, text('small', deviceLabel(device || { name: 'Appareil' }, clients) + ' · ' +
       new Date(request.created_at).toLocaleString(accountLanguage)));
     row.append(text('p', isApp ? 'Demande d’accès à une application' : wantsAllow ? 'Demande d’autorisation' : 'Demande de blocage'));
+    if (timing) {
+      const label = { approved: 'Fin de l’autorisation', expired: 'Date de fin passée', requested: 'Date de fin souhaitée' }[timing.kind];
+      const note = timing.kind === 'day'
+        ? accountCopy('24 heures à compter de l’approbation')
+        : accountCopy(label) + ' · ' + new Date(timing.until).toLocaleString(accountLanguage);
+      row.append(text('p', note, 'request-timing'));
+    }
     if (request.reason) row.append(text('p', request.reason));
     if (request.admin_note) row.append(text('p', request.admin_note));
     const actions = [];
     if (request.status === 'pending') {
       const approval = isApp ? 'Autoriser l’application' : wantsAllow ? 'Autoriser le site' : 'Bloquer le site';
-      actions.push(['approved', approval, 'primary']);
+      if (!expired) actions.push(['approved', approval, 'primary']);
       actions.push(['rejected', 'Refuser', 'ghost']);
-    } else if (wantsAllow && request.status === 'approved') {
+    } else if (wantsAllow && request.status === 'approved' && !expired) {
       actions.push(['revoked', 'Révoquer l’autorisation', 'danger']);
-    } else if (wantsAllow && request.status === 'revoked') {
+    } else if (wantsAllow && request.status === 'revoked' && !expired) {
       actions.push(['approved', 'Réautoriser', 'secondary']);
     }
     if (actions.length) {
@@ -159,9 +186,7 @@ async function load() {
   if (!session) {
     currentUser = null;
     uploaded = null;
-    accountLoad++;
-    clearAccountCode();
-    $('appAccounts').replaceChildren();
+    resetAppAccounts();
     $('catalogEditor').close();
     $('workspace').hidden = true;
     $('account').textContent = 'Espace administrateur';
@@ -170,12 +195,17 @@ async function load() {
   }
 
   const user = session.user;
+  if (currentUser && user.id !== currentUser.id) {
+    currentUser = null;
+    resetAppAccounts();
+    $('workspace').hidden = true;
+  }
   const role = check(await db.from('platform_admins').select('role').eq('user_id', user.id).maybeSingle());
   const active = role && check(await db.rpc('is_platform_admin')) === true;
   if (generation !== workspaceLoad) return;
   if (!active) {
     currentUser = null;
-    clearAccountCode();
+    resetAppAccounts();
     $('catalogEditor').close();
     $('workspace').hidden = true;
     status('Ce compte ne dispose pas d’un accès administrateur.', true);
@@ -184,7 +214,7 @@ async function load() {
 
   const owner = role.role === 'owner' && check(await db.rpc('is_platform_owner')) === true;
   const [deviceRows, clientRows, siteRows, catalogRows, appRows] = await Promise.all([
-    db.from('devices').select('id,name,user_id,client_id,configuration_status').order('name'),
+    db.from('devices').select('id,name,user_id,client_id,configuration_status,platform').order('name'),
     db.from('clients').select('id,name'),
     db.from('yd_site_requests').select('*').order('created_at', { ascending: false }).limit(200),
     db.from('yd_catalog').select('*').order('name'),
@@ -201,19 +231,12 @@ async function load() {
   isOwner = owner;
   $('ownerImports').hidden = !isOwner;
 
-  const selected = $('devices').value;
-  const readyDevices = devices.filter(d => d.configuration_status === 'configured');
-  $('devices').replaceChildren(...readyDevices.map(device => {
+  $('configuredDevices').replaceChildren(...configuredDevices().map(device => {
     const option = document.createElement('option');
     option.value = device.id;
-    option.textContent = deviceLabel(device, clients);
+    option.label = deviceLabel(device, clients);
     return option;
   }));
-  if (readyDevices.some(device => device.id === selected)) $('devices').value = selected;
-  $('pair').disabled = !readyDevices.length;
-  $('pairHint').textContent = accountCopy(readyDevices.length
-    ? 'Le code donne accès uniquement au téléphone choisi.'
-    : 'Aucun appareil configuré. Préparez un téléphone avant de créer son code.');
 
   const pending = requests.filter(request => request.status === 'pending').length;
   $('pendingCount').textContent = pending;
@@ -233,41 +256,147 @@ async function load() {
   showView(view);
   status(appRequestsUnavailable ? 'Les demandes d’applications seront disponibles après la mise à jour du service.' : '');
 }
-async function loadAppAccounts(){
- const generation=++accountLoad;
- const list=$('appAccounts'),message=$('appAccountsStatus');
- message.textContent=accountCopy('Chargement des comptes…');
- $('refreshAccounts').disabled=true;
- try{
-  const rows=check(await db.rpc('yd_list_app_accounts'))||[];
-  if(generation!==accountLoad||!currentUser)return;
-  list.replaceChildren();
-  if(!rows.length)empty(list,'Aucun compte activé','Les utilisateurs apparaîtront ici après leur première activation.');
-  for(const account of rows){
-   const row=document.createElement('article');row.className='app-account-row';
-   const identity=document.createElement('div');identity.className='app-account-identity';
-   identity.append(text('strong',account.email),text('small',account.contact_phone),text('small',account.device_name||'Téléphone associé'));
-   const badges=document.createElement('div');badges.className='account-badges';
-   badges.append(text('span',account.is_active?'Actif':'Suspendu','pill '+(account.is_active?'approved':'revoked')),text('small',account.email_verified?'E-mail vérifié':'Activation par code administrateur'));
-   row.append(identity,badges);
-   if(account.can_manage===true){
-    const toggle=button(account.is_active?'Suspendre':'Réactiver',account.is_active?'danger':'secondary');
-    toggle.onclick=()=>task(toggle,async()=>{
-     const prompt=account.is_active?'Suspendre l’accès à l’application pour ce compte ? Le filtre installé restera actif.':'Réactiver l’accès à l’application pour ce compte ?';
-     if(!confirm(accountCopy(prompt)))return;
-     check(await db.rpc('yd_set_app_account_access',{target_account:account.id,enabled:!account.is_active}));
-     await loadAppAccounts();status('Accès au compte mis à jour.');
-    });row.append(toggle);
-   }
-   list.append(row);
-  }
-  message.textContent=accountCopy('Le filtre reste actif même lorsque le compte est déconnecté ou suspendu.');
- }catch(error){
-  if(generation!==accountLoad)return;
-  list.replaceChildren();message.textContent=accountCopy(['PGRST202','PGRST205','42P01','42703'].includes(error.code)?'La gestion des comptes doit être activée dans Supabase. Les autres outils restent accessibles.':'Impossible de charger les comptes. Réessayez.');
- }finally{if(generation===accountLoad){$('refreshAccounts').disabled=false;resizeParent();}}
+function configuredDevices() {
+  return devices.filter(device => device.configuration_status === 'configured' && device.platform === 'Android');
 }
-$('refreshAccounts').onclick=()=>void loadAppAccounts();
+
+function openAccountLink(account) {
+  closeAccountLink();
+  linkAccount = account.id;
+  const linkForm = $('pairForm');
+  const row = Array.from($('appAccounts').children).find(node => node.dataset.accountId === account.id);
+  row?.after(linkForm);
+  $('pairAccount').textContent = account.email;
+  $('devices').value = account.device_id || account.pending_device_id || '';
+  $('devices').readOnly = Boolean(account.device_id);
+  $('replaceAccountHint').hidden = Boolean(account.device_id);
+  row?.querySelector('[data-link-account]')?.setAttribute('aria-expanded', 'true');
+  linkForm.hidden = false;
+  $('devices').focus();
+  resizeParent();
+}
+
+function closeAccountLink() {
+  linkGeneration++;
+  const button = Array.from($('appAccounts').querySelectorAll('[data-link-account]'))
+    .find(node => node.dataset.linkAccount === linkAccount);
+  button?.setAttribute('aria-expanded', 'false');
+  linkAccount = null;
+  $('pairForm').hidden = true;
+  $('devices').value = '';
+  $('pairAccount').textContent = '';
+  clearAccountCode();
+  return button;
+}
+
+function resetAppAccounts() {
+  accountLoad++;
+  closeAccountLink();
+  $('appAccounts').after($('pairForm'));
+  $('appAccounts').replaceChildren();
+  $('createAccountForm').reset();
+  $('createAccountForm').hidden = true;
+}
+
+function renderAppAccount(account) {
+  const row = document.createElement('article');
+  row.className = 'app-account-row';
+  row.dataset.accountId = account.id;
+  const identity = document.createElement('div');
+  identity.className = 'app-account-identity';
+  identity.append(text('strong', account.email), text('small', account.contact_phone));
+  if (account.device_id) {
+    const device = text('small', account.device_name || 'Téléphone associé');
+    device.title = account.device_id;
+    identity.append(device);
+  }
+  const pendingUntil = Date.parse(account.pending_expires_at);
+  if (account.is_active && pendingUntil > Date.now()) {
+    const nextDevice = devices.find(device => device.id === account.pending_device_id);
+    identity.append(text('small', [
+      accountCopy('Activation en attente'),
+      nextDevice?.name,
+      accountCopy('Expire le') + ' ' + new Date(pendingUntil).toLocaleString(accountLanguage)
+    ].filter(Boolean).join(' · ')));
+  }
+
+  const badges = document.createElement('div');
+  badges.className = 'account-badges';
+  const label = !account.is_active ? 'Suspendu' : account.device_id ? 'Actif' : 'En attente d’un appareil';
+  const appearance = !account.is_active ? 'revoked' : account.device_id ? 'approved' : 'pending';
+  badges.append(text('span', label, 'pill ' + appearance));
+  if (account.email_verified) badges.append(text('small', 'E-mail vérifié'));
+  row.append(identity, badges);
+
+  if (account.can_manage === true) {
+    const actions = document.createElement('div');
+    actions.className = 'account-actions';
+    if (account.can_assign && configuredDevices().some(device => !account.device_id || device.id === account.device_id)) {
+      const link = button(account.device_id ? 'Nouveau code d’activation' : 'Associer un appareil');
+      link.dataset.linkAccount = account.id;
+      link.setAttribute('aria-controls', 'pairForm');
+      link.setAttribute('aria-expanded', String(account.id === linkAccount));
+      link.setAttribute('aria-label', link.textContent + ' · ' + account.email);
+      link.onclick = () => openAccountLink(account);
+      actions.append(link);
+    }
+    const toggle = button(account.is_active ? 'Suspendre' : 'Réactiver', account.is_active ? 'danger' : 'secondary');
+    toggle.setAttribute('aria-label', toggle.textContent + ' · ' + account.email);
+    toggle.onclick = () => task(toggle, async () => {
+      const prompt = account.is_active
+        ? 'Suspendre l’accès à l’application pour ce compte ? Le filtre installé restera actif.'
+        : 'Réactiver l’accès à l’application pour ce compte ?';
+      if (!confirm(accountCopy(prompt))) return;
+      check(await db.rpc('yd_set_app_account_access', { target_account: account.id, enabled: !account.is_active }));
+      if (linkAccount === account.id) closeAccountLink();
+      await loadAppAccounts();
+      status('Accès au compte mis à jour.');
+    });
+    actions.append(toggle);
+    row.append(actions);
+  }
+  return row;
+}
+
+async function loadAppAccounts() {
+  const generation = ++accountLoad;
+  const list = $('appAccounts'), message = $('appAccountsStatus');
+  message.textContent = accountCopy('Chargement des comptes…');
+  $('refreshAccounts').disabled = true;
+  try {
+    const rows = check(await db.rpc('yd_list_app_accounts_v2')) || [];
+    if (generation !== accountLoad || !currentUser || view !== 'pair') return;
+    const nodes = rows.map(renderAppAccount);
+    const activeRow = rows.findIndex(account => account.id === linkAccount && account.can_assign);
+    const linkForm = $('pairForm');
+    const focused = linkForm.contains(document.activeElement) ? document.activeElement : null;
+    if (activeRow < 0) closeAccountLink();
+    list.replaceChildren(...nodes);
+    if (activeRow >= 0) {
+      nodes[activeRow].after(linkForm);
+      focused?.focus({ preventScroll: true });
+    } else list.after(linkForm);
+    $('createAccountForm').hidden = false;
+    if (!rows.length) empty(list, 'Aucun compte', 'Vous pouvez créer un compte avant de configurer un téléphone.');
+    message.textContent = accountCopy(configuredDevices().length
+      ? ''
+      : 'Aucun appareil Android configuré. Vous pouvez quand même créer des comptes.');
+  } catch (error) {
+    if (generation !== accountLoad) return;
+    closeAccountLink();
+    list.after($('pairForm'));
+    list.replaceChildren();
+    message.textContent = accountCopy(['PGRST202', 'PGRST205', '42P01', '42703'].includes(error.code)
+      ? 'La gestion des comptes doit être activée dans Supabase. Les autres outils restent accessibles.'
+      : 'Impossible de charger les comptes. Réessayez.');
+  } finally {
+    if (generation === accountLoad) {
+      $('refreshAccounts').disabled = false;
+      resizeParent();
+    }
+  }
+}
+$('refreshAccounts').onclick = () => void loadAppAccounts();
 function hidePlayUpdates(){
  playCheckRun++;playAbort?.abort();playAbort=null;playChecking=false;playCheckResults.clear();
  $('playUpdates').hidden=true;$('playUpdateResults').replaceChildren();$('playUpdatesProgress').textContent='';
@@ -321,38 +450,85 @@ $('checkPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks());
 $('retryPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks(true));
 $('loginForm').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{check(await db.auth.signInWithPassword({email:$('email').value,password:$('password').value}));$('password').value='';await load();});};
 $('refresh').onclick=e=>task(e.currentTarget,load);$('viewRefresh').onclick=e=>task(e.currentTarget,load);$('catalogSearch').oninput=renderCatalog;$('requestSearch').oninput=renderRequests;$('requestFilter').onchange=renderRequests;
-$('pairForm').onsubmit = event => {
+$('createAccountForm').onsubmit = event => {
   event.preventDefault();
-  const action = $('pair');
-  if (action.disabled) return;
+  const action = $('createAccount');
+  if (action.disabled || !currentUser) return;
+  const userId = currentUser.id;
   return task(action, async () => {
-    clearAccountCode();
-    const userId = currentUser?.id;
-    const target = $('devices').value;
-    const result = check(await db.rpc('yd_issue_app_activation', {
-      target_device: target,
+    check(await db.rpc('yd_admin_create_app_account', {
       contact_email: $('pairEmail').value.trim(),
       contact_phone: $('pairPhone').value.trim().replace(/[\s().-]/g, '')
     }));
+    if (currentUser?.id !== userId || view !== 'pair') return;
+    event.target.reset();
+    await loadAppAccounts();
+    status('Compte créé. Vous pourrez lui associer un appareil à tout moment.');
+  });
+};
+
+$('pairForm').onsubmit = event => {
+  event.preventDefault();
+  const action = $('pair');
+  if (action.disabled || !currentUser || !linkAccount) return;
+  const userId = currentUser.id;
+  const account = linkAccount;
+  const generation = linkGeneration;
+  const target = $('devices').value.trim().toLowerCase();
+  if (!isDeviceId(target) || !configuredDevices().some(device => device.id === target)) {
+    status('Choisissez l’identifiant d’un appareil Android configuré dans votre espace.', true);
+    return;
+  }
+  return task(action, async () => {
+    clearAccountCode();
+    const result = check(await db.rpc('yd_admin_assign_app_account', { account_id: account, target_device: target }));
     const expires = Date.parse(result?.expires_at);
-    if (!/^[0-9a-f]{32}$/i.test(result?.code || '') || !(expires > Date.now())) {
+    if (!/^[0-9a-f]{32}$/i.test(result?.code || '') || !(expires > Date.now()) ||
+        result.device_id !== target || result.account_id !== account) {
       throw new Error(accountCopy('Impossible de créer le code. Réessayez.'));
     }
-    if (!currentUser || currentUser.id !== userId || view !== 'pair' || $('devices').value !== target) return;
+    if (currentUser?.id !== userId || view !== 'pair' || linkGeneration !== generation) return;
     $('pairCode').textContent = result.code;
     $('pairResult').hidden = false;
     codeExpiryTimer = setTimeout(() => {
       clearAccountCode();
       status('Le code a expiré. Créez-en un nouveau si nécessaire.');
-    }, Math.min(900_000, expires - Date.now()));
+      void loadAppAccounts();
+    }, Math.max(0, expires - Date.now()));
+    status('');
+    await loadAppAccounts();
   });
 };
-function clearAccountCode(){if(codeExpiryTimer)clearTimeout(codeExpiryTimer);codeExpiryTimer=null;$('pairResult').hidden=true;$('pairCode').textContent='';}
-$('devices').onchange=clearAccountCode;
-$('copyCode').onclick=e=>task(e.target,async()=>{await navigator.clipboard.writeText($('pairCode').textContent);status('Code copié.');});
+
+function clearAccountCode() {
+  if (codeExpiryTimer) clearTimeout(codeExpiryTimer);
+  codeExpiryTimer = null;
+  $('pairResult').hidden = true;
+  $('pairCode').textContent = '';
+}
+
+$('devices').oninput = () => {
+  linkGeneration++;
+  clearAccountCode();
+};
+$('cancelPair').onclick = () => closeAccountLink()?.focus();
+$('copyCode').onclick = event => task(event.currentTarget, async () => {
+  const code = $('pairCode').textContent;
+  if (!code) return;
+  await navigator.clipboard.writeText(code);
+  status('Code copié.');
+});
 $('importPlay').onclick=e=>task(e.currentTarget,async()=>{const headers=await ownerHeaders();const pkg=parsePlayUrl($('playUrl').value);form.elements.package_name.value=pkg;form.elements.source_url.value='https://play.google.com/store/apps/details?id='+encodeURIComponent(pkg);const preset=BASE_APPS.find(a=>a.package_name===pkg);if(preset){form.elements.name.value=preset.name;form.elements.description.value=preset.description;form.elements.is_base.checked=isOwner;}let response;try{response=await fetch(GPLAY_API+'/api/info/'+encodeURIComponent(pkg),{headers,cache:'no-store',redirect:'error'});}catch(_){throw Error('Le service local ne répond pas. Démarrez-le selon le guide « Configurer le service ».');}const info=await response.json();if(!response.ok||info.error)throw Error(info.error||'Impossible de lire la fiche Google Play.');if(info.title&&info.title!==pkg)form.elements.name.value=info.title;if(info.developer&&info.developer!=='Unknown')form.elements.description.value='Éditeur : '+info.developer;status('Fiche Google Play reconnue. Cliquez sur « Télécharger l’APK » pour la préparer.');});
 $('downloadPlay').onclick=e=>task(e.currentTarget,async()=>{const headers=await ownerHeaders();const pkg=parsePlayUrl($('playUrl').value);form.elements.package_name.value=pkg;form.elements.source_url.value='https://play.google.com/store/apps/details?id='+encodeURIComponent(pkg);$('apkInfo').textContent='Téléchargement depuis Google Play…';let response;try{response=await fetch(GPLAY_API+'/api/download-merged/'+encodeURIComponent(pkg)+'?arch=arm64-v8a',{headers,cache:'no-store',redirect:'error'});}catch(_){throw Error('Le service Google Play local est introuvable. Consultez le guide de démarrage ci-dessous.');}const type=response.headers.get('content-type')||'';if(!response.ok||type.includes('application/json')){let detail='Téléchargement impossible. Vérifiez la connexion au service Google Play.';try{const payload=await response.json();detail=payload.error||detail;}catch(_){}throw Error(detail);}const blob=await response.blob();if(!blob.size)throw Error('Le service a renvoyé un fichier APK vide.');const file=new File([blob],pkg+'.apk',{type:'application/vnd.android.package-archive'});const metadata=await inspectApk(file);if(metadata.package_name!==pkg)throw Error('Le paquet de l’APK reçu ne correspond pas au lien Google Play.');uploaded={file,...metadata};for(const k of['package_name','version_code','version_name','sha256'])form.elements[k].value=metadata[k];if(!form.elements.name.value||form.elements.name.value===pkg)form.elements.name.value=BASE_APPS.find(a=>a.package_name===pkg)?.name||pkg;form.elements.apk_url.value='';$('apkInfo').textContent=`APK récupéré · version ${metadata.version_name} · ${(file.size/1048576).toFixed(1)} Mo · empreinte vérifiée. Vérifiez les avertissements avant publication.`;status('APK prêt. Vérifiez les informations, puis publiez-le dans la boutique YiDream.');});
 $('apkFile').onchange=e=>task(null,async()=>{uploaded=null;await ownerHeaders();const file=e.target.files?.[0];if(!file)return;$('apkInfo').textContent='Lecture du fichier APK…';const metadata=await inspectApk(file);uploaded={file,...metadata};for(const k of['package_name','version_code','version_name','sha256'])form.elements[k].value=metadata[k];const preset=BASE_APPS.find(a=>a.package_name===metadata.package_name);if(preset&&!form.elements.name.value){form.elements.name.value=preset.name;form.elements.description.value=preset.description;form.elements.source_url.value=preset.source_url;}form.elements.apk_url.value='';$('apkInfo').textContent=`${metadata.package_name} · version ${metadata.version_name} · ${(file.size/1048576).toFixed(1)} Mo · fichier vérifié`;});
 form.onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{const values=Object.fromEntries(new FormData(form));values.is_base=isOwner&&form.elements.is_base.checked;values.version_code=values.version_code?Number(values.version_code):null;for(const k of['apk_url','sha256','version_name','source_url'])values[k]=values[k]?.trim()||null;if(values.source_url)parsePlayUrl(values.source_url);let newPath=null;try{if(uploaded){await ownerHeaders();newPath=`${isOwner?(form.dataset.ownerId||currentUser.id):currentUser.id}/${uploaded.package_name}/${uploaded.sha256}.apk`;check(await db.storage.from('yd-apks').upload(newPath,uploaded.file,{contentType:'application/vnd.android.package-archive',upsert:true}));values.apk_url=`https://jqrznghqwdjbizjehzrm.supabase.co/storage/v1/object/authenticated/yd-apks/${newPath}`;values.storage_path=newPath;}else if(values.apk_url){const u=new URL(values.apk_url);if(u.protocol!=='https:'||u.username||u.password)throw Error('Utilisez un lien HTTPS sans identifiants.');}if(values.apk_url&&!releaseReady(values))throw Error('Le paquet, le code de version et le SHA-256 sont nécessaires pour publier un APK.');if(!uploaded&&form.dataset.editId){const previous=catalog.find(a=>a.id===form.dataset.editId);if(previous&&values.apk_url!==previous.apk_url)values.storage_path=null;}if(form.dataset.editId){check(await db.from('yd_catalog').update({...values,enabled:catalog.find(app=>app.id===form.dataset.editId)?.enabled??true}).eq('id',form.dataset.editId));}else{check(await db.from('yd_catalog').upsert({...values,owner_id:currentUser.id,enabled:true},{onConflict:'owner_id,package_name'}));}form.reset();delete form.dataset.editId;delete form.dataset.ownerId;uploaded=null;$('apkInfo').textContent='Le nom du paquet, la version et l’empreinte sont lus dans le fichier APK.';$('catalogEditor').close();await load();status('Application enregistrée dans la boutique.');}catch(error){if(newPath)status('Le fichier APK est envoyé, mais sa publication a échoué. Réessayez.',true);throw error;}});};
-db.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT')hidePlayUpdates();if(event==='SIGNED_OUT'||event==='SIGNED_IN')setTimeout(()=>task(null,load),0);});
+db.auth.onAuthStateChange(event => {
+  if (event === 'SIGNED_OUT') {
+    currentUser = null;
+    resetAppAccounts();
+    $('workspace').hidden = true;
+    hidePlayUpdates();
+  }
+  if (event === 'SIGNED_OUT' || event === 'SIGNED_IN') setTimeout(() => task(null, load), 0);
+});
 await task(null,load);

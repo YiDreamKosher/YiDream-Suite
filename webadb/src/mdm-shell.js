@@ -4,7 +4,7 @@ export const MDM_TITLES = Object.freeze({
   home: 'Accueil',
   catalog: 'Boutique d’applications',
   requests: 'Demandes d’accès',
-  pair: 'Associer un appareil'
+  pair: 'Comptes et appareils'
 });
 
 export function mdmViewFromHash(hash) {
@@ -26,7 +26,7 @@ export function mdmFrameSource(view, language = 'fr', pathname = typeof location
     embed: 'classic',
     view,
     lang: ['fr', 'en', 'he', 'yi'].includes(language) ? language : 'fr',
-    v: '20261112-requests'
+    v: '20261112-account-windows'
   });
   const prefix = /\/admin(?:\/|\/index\.html)$/.test(pathname) ? '../' : './';
   return prefix + 'mdm-admin.html?' + params;

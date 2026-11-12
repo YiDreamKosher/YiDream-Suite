@@ -172,6 +172,12 @@ export function setDeviceRule(id, kind, target, allowed) {
   });
 }
 
+export function setTemporarySiteRule(id, target, expiresAt) {
+  return deviceRpc('yd_set_temporary_site_rule', {
+    target_device: id, rule_target: target, expires_at: expiresAt
+  });
+}
+
 export async function updateStoreName(userId,shopName){
   const {error}=await mustDb().from('reseller_profiles').update({shop_name:shopName.trim(),updated_at:new Date().toISOString()}).eq('user_id',userId);
   if(error)throw error;

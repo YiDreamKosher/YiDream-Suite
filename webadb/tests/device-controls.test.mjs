@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeRuleTarget } from '../src/device-controls.js';
+import { normalizeRuleTarget, normalizeSiteExpiry } from '../src/device-controls.js';
 import { YiDreamAdb } from '../src/adb.js';
 
 test('site rules are canonical domains and reject ambiguous or unsafe URLs', () => {
@@ -13,6 +13,14 @@ test('site rules are canonical domains and reject ambiguous or unsafe URLs', () 
   ]) assert.equal(normalizeRuleTarget('site', target), null, target);
   assert.equal(normalizeRuleTarget('app', 'com.example.app'), 'com.example.app');
   assert.equal(normalizeRuleTarget('app', 'com.example.app; echo foo'), null);
+});
+
+test('temporary site expiry converts the browser time and rejects invalid windows', () => {
+  const now = new Date(2026, 10, 12, 8).getTime();
+  assert.equal(normalizeSiteExpiry('2026-11-13T08:00', now), new Date(2026, 10, 13, 8).toISOString());
+  for (const value of ['', '2026-11-12T08:00', '2026-12-32T08:00', '2027-02-30T08:00', '2027-11-13T08:00', '2026-11-13T08:00Z']) {
+    assert.equal(normalizeSiteExpiry(value, now), null, value);
+  }
 });
 
 const activationCode = 'AC'.repeat(16);
