@@ -128,3 +128,10 @@ body{background:var(--bg);color:var(--ink)}
 .play-update-row small{display:block;color:var(--muted);font-size:11px;margin:4px 0 9px;overflow-wrap:anywhere}
 .play-update-row p{margin:8px 0 0;overflow-wrap:anywhere}.play-update-row>.button{flex-shrink:0}
 @media(max-width:720px){.play-updates{padding:16px}.play-updates-heading,.play-update-row{align-items:stretch;flex-direction:column}.play-updates-heading>.row-actions{max-width:none;justify-content:flex-start}.play-update-row>.button{align-self:flex-start}}
+
+.request-scope { display: grid; gap: 8px; margin-block: 12px; }
+.request-scope select { display: block; margin-block-start: 4px; width: min(100%, 320px); }
+.request-scope fieldset { max-height: 200px; overflow: auto; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.request-scope fieldset[hidden] { display: none; }
+.request-scope fieldset label { display: flex; align-items: center; gap: 8px; padding-block: 4px; }
+.request-scope input { width: auto; min-height: auto; accent-color: var(--blue); }

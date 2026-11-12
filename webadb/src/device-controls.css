@@ -175,6 +175,78 @@
   font-size: 16px;
 }
 
+.device-manager-settings,
+.device-bulk-settings {
+  margin-block: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.device-manager-settings,
+.device-bulk-settings form {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+.device-manager-settings[hidden],
+.device-bulk-settings[hidden] {
+  display: none;
+}
+
+.device-manager-settings fieldset,
+.device-bulk-settings fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.device-manager-settings legend,
+.device-bulk-settings legend,
+.device-bulk-settings summary {
+  font-weight: 700;
+  margin-block-end: 8px;
+}
+
+.device-manager-settings select,
+.device-bulk-settings select,
+.setup-profile select {
+  display: block;
+  width: min(100%, 280px);
+  margin-block-start: 4px;
+}
+
+.setup-profile {
+  display: block;
+  margin-block: 12px;
+}
+
+.device-manager-settings button,
+.device-bulk-settings button {
+  justify-self: start;
+}
+
+.device-manager-settings .device-check,
+.device-bulk-settings .device-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 4px;
+}
+
+.device-check input {
+  width: auto;
+  min-height: auto;
+  accent-color: var(--accent, #7257d6);
+}
+
+.device-targets {
+  max-height: 190px;
+  overflow-y: auto;
+}
+
 .device-rule {
   padding-block: 8px;
   border-bottom: 1px solid var(--line);

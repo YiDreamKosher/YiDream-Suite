@@ -581,5 +581,200 @@ assert.equal(firstPhone.device_id, fresh.device_id);
 await act('authenticated', adminA);
 assert.equal((await enrollmentStatus(fresh.device_id)).redeemed_activation_id, firstActivation.activation_id);
 
+// Fleet controls remain device-bound and every legacy submission path is gated.
+await db.exec('reset role');
+const fleetMigration = '20261112183018_fleet_device_controls.sql';
+await loadMigration(fleetMigration);
+await loadMigration(fleetMigration);
+const setControls = (deviceId, profile, apps, sites) => scalar(
+  'select public.yd_admin_set_device_controls($1,$2,$3,$4)', [deviceId, profile, apps, sites]
+);
+const setPermissions = (ids, apps, sites) => scalar(
+  'select public.yd_admin_set_request_permissions($1,$2,$3)', [ids, apps, sites]
+);
+const reviewScoped = (kind, requestId, decision, ids = null, all = false) => scalar(
+  "select public.yd_review_device_request($1,$2,$3,'',$4,$5)", [kind, requestId, decision, ids, all]
+);
+const freshRequestId = () => crypto.randomUUID();
+const requestLegacySite = (token, domain, requestId) => scalar(
+  "select public.yd_request_site($1,$2,'',$3)", [token, 'https://' + domain, requestId]
+);
+const requestPermanent = (token, domain, requestId) => scalar(
+  "select public.yd_request_site_change($1,$2,'',$3,true)", [token, 'https://' + domain, requestId]
+);
+const secondaryId = fresh.device_id;
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(id)).app_requests_enabled, false);
+assert.equal((await adminPolicy(id)).site_requests_enabled, false);
+const staging = await register(null, 'fixture-staged-mp3');
+assert.equal((await setControls(staging.device_id, 'mp3', false, false)).device_profile, 'mp3');
+await assert.rejects(() => setPermissions([staging.device_id], true, null), /CONFIGURED_DEVICE_REQUIRED/);
+await assert.rejects(() => setControls(deviceB, 'qin', false, false), /DEVICE_NOT_AVAILABLE/);
+const initialPermissions = await adminPolicy(id);
+await assert.rejects(() => setPermissions([id, deviceB], true, null), /DEVICE_NOT_AVAILABLE/);
+assert.equal((await adminPolicy(id)).revision, initialPermissions.revision);
+assert.equal(await setPermissions([id, secondaryId, id], null, true), 2);
+
+await act('anon', '', true, recoveredPhone.app_token);
+await assert.rejects(() => setControls(id, 'qin', true, true), /permission denied/);
+await assert.rejects(() => requestApp(recoveredPhone.token, 'com.example.fleet', freshRequestId()), /REQUESTS_DISABLED/);
+assert.deepEqual(await requestPermanent(recoveredPhone.token, 'enabled.example', freshRequestId()), {});
+await act('authenticated', adminA);
+assert.equal(await setPermissions([id], true, false), 1);
+await act('anon', '', true, recoveredPhone.app_token);
+assert.deepEqual(await requestApp(recoveredPhone.token, 'com.example.fleet', freshRequestId()), {});
+await assert.rejects(() => requestPermanent(recoveredPhone.token, 'fleet.example', freshRequestId()), /REQUESTS_DISABLED/);
+await assert.rejects(() => requestLegacySite(recoveredPhone.token, 'fleet.example', freshRequestId()), /REQUESTS_DISABLED/);
+await assert.rejects(() => requestWindow(recoveredPhone.token, 'https://fleet.example', freshRequestId(), 24), /REQUESTS_DISABLED/);
+
+await act('anon', '', true, firstPhone.app_token);
+const priorSiteId = freshRequestId();
+await requestLegacySite(firstPhone.token, 'queued-before-mp3.example', priorSiteId);
+const priorSite = await siteRequest(firstPhone.token, priorSiteId);
+await act('authenticated', adminA);
+await setRule(secondaryId, 'site', 'existing.example', true);
+await setWindow(secondaryId, 'existing-window.example', new Date(Date.now() + 86_400_000).toISOString());
+assert.equal((await setControls(secondaryId, 'mp3', true, true)).site_requests_enabled, false);
+await assert.rejects(() => setPermissions([secondaryId], null, true), /MP3_WEB_DISABLED/);
+await assert.rejects(() => setRule(secondaryId, 'site', 'denied.example', true), /MP3_WEB_DISABLED/);
+await assert.rejects(() => reviewSite(priorSite.id, 'approved'), /MP3_WEB_DISABLED/);
+await act('anon', '', true, firstPhone.app_token);
+assert.equal((await phonePolicy(firstPhone.token)).device_profile, 'mp3');
+assert.deepEqual((await phonePolicy(firstPhone.token)).sites, {});
+assert.deepEqual((await phonePolicyV2(firstPhone.token)).temporary_sites, {});
+await assert.rejects(() => requestLegacySite(firstPhone.token, 'existing.example', freshRequestId()), /REQUESTS_DISABLED/);
+const mp3AppId = freshRequestId();
+assert.deepEqual(await requestApp(firstPhone.token, 'com.example.mp3', mp3AppId), {});
+await act('authenticated', adminA);
+const mp3App = (await adminAppRequests()).find(request => request.client_request_id === mp3AppId);
+assert.equal(await reviewScoped('app', mp3App.id, 'rejected'), 1);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.mp3'], undefined);
+const fleetApp = (await adminAppRequests()).find(request => request.package_name === 'com.example.fleet');
+await act('authenticated', owner);
+await assert.rejects(() => reviewScoped('app', fleetApp.id, 'approved', [deviceB]), /INVALID_REQUEST_SCOPE/);
+await act('authenticated', adminA);
+assert.equal((await adminAppRequests()).find(request => request.id === fleetApp.id).status, 'pending');
+assert.equal(await reviewScoped('app', fleetApp.id, 'approved', [secondaryId]), 2);
+assert.equal((await adminPolicy(id)).apps['com.example.fleet'], true);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.fleet'], true);
+// Legacy single-request review still revokes every grant owned by the decision.
+await reviewApp(fleetApp.id, 'revoked');
+assert.equal((await adminPolicy(id)).apps['com.example.fleet'], false);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.fleet'], false);
+await setRule(secondaryId, 'app', 'com.example.fleet', true);
+assert.equal(await reviewScoped('app', fleetApp.id, 'approved', null, true), 2);
+assert.equal(await reviewScoped('app', fleetApp.id, 'revoked'), 2);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.fleet'], true);
+
+await setControls(id, 'qin', true, true);
+await act('anon', '', true, recoveredPhone.app_token);
+const fleetSiteId = freshRequestId();
+await requestPermanent(recoveredPhone.token, 'fleet.example', fleetSiteId);
+const fleetSite = await siteRequest(recoveredPhone.token, fleetSiteId);
+assert.equal(fleetSite.requested_account_id, recoveredPhone.account.id);
+await act('authenticated', adminA);
+await assert.rejects(() => reviewScoped('site', fleetSite.id, 'approved', [secondaryId]), /MP3_WEB_DISABLED/);
+assert.equal(await reviewScoped('site', fleetSite.id, 'approved', null, true), 1);
+assert.equal((await adminPolicy(id)).sites['fleet.example'], true);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], undefined);
+assert.equal((await setControls(secondaryId, 'qin', true, true)).sites['existing.example'], true);
+assert.equal(await reviewScoped('site', fleetSite.id, 'revoked'), 1);
+assert.equal(await reviewScoped('site', fleetSite.id, 'approved', [secondaryId]), 2);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], true);
+// A direct rule on the destination takes precedence over a scoped decision.
+await setRule(secondaryId, 'site', 'fleet.example', false);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], false);
+assert.equal(await reviewScoped('site', fleetSite.id, 'revoked'), 1);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], false);
+await act('authenticated', adminB);
+assert.equal((await adminPolicy(deviceB)).sites['fleet.example'], undefined);
+
+// A temporary approval shares the origin deadline without overwriting another
+// grant or promoting the destination's window to a permanent rule.
+await act('authenticated', adminA);
+await setRule(secondaryId, 'site', 'existing-window.example', false);
+await act('anon', '', true, recoveredPhone.app_token);
+const scopedWindowId = freshRequestId();
+const sharedDeadline = new Date(Date.now() + 172_800_000).toISOString();
+await requestWindow(recoveredPhone.token, 'https://shared-window.example', scopedWindowId, null, sharedDeadline);
+const scopedWindow = await siteRequest(recoveredPhone.token, scopedWindowId);
+await act('authenticated', adminA);
+assert.equal(await reviewScoped('site', scopedWindow.id, 'approved', null, true), 2);
+const secondaryWindowPolicy = await adminPolicy(secondaryId);
+assert.equal(secondaryWindowPolicy.sites['shared-window.example'], undefined);
+assert.equal(Date.parse(secondaryWindowPolicy.temporary_sites['shared-window.example']), Date.parse(sharedDeadline));
+assert.equal(secondaryWindowPolicy.temporary_sites['shared-window.example'],
+  (await adminPolicy(id)).temporary_sites['shared-window.example']);
+await act('anon', '', true, firstPhone.app_token);
+assert.equal((await phonePolicy(firstPhone.token)).sites['shared-window.example'], undefined);
+assert.equal((await report(firstPhone.token, secondaryWindowPolicy.revision, true)).applied_revision,
+  secondaryWindowPolicy.applied_revision);
+assert.equal((await reportV2(firstPhone.token, secondaryWindowPolicy.revision, true)).applied_revision,
+  secondaryWindowPolicy.revision);
+await act('authenticated', adminA);
+const separateDeadline = new Date(Date.now() + 86_400_000).toISOString();
+const overlappingWindow = await setWindow(secondaryId, 'shared-window.example', separateDeadline);
+assert.equal(Date.parse(overlappingWindow.temporary_sites['shared-window.example']), Date.parse(sharedDeadline));
+assert.equal(await reviewScoped('site', scopedWindow.id, 'revoked'), 2);
+assert.equal((await adminPolicy(id)).temporary_sites['shared-window.example'], undefined);
+assert.equal(Date.parse((await adminPolicy(secondaryId)).temporary_sites['shared-window.example']), Date.parse(separateDeadline));
+
+await act('anon', '', true, recoveredPhone.app_token);
+const scopedDailyId = freshRequestId();
+await requestWindow(recoveredPhone.token, 'https://scoped-day.example', scopedDailyId, 24);
+const scopedDaily = await siteRequest(recoveredPhone.token, scopedDailyId);
+await act('authenticated', adminA);
+assert.equal(await reviewScoped('site', scopedDaily.id, 'approved', [secondaryId]), 2);
+assert.equal((await adminPolicy(secondaryId)).temporary_sites['scoped-day.example'],
+  (await adminPolicy(id)).temporary_sites['scoped-day.example']);
+await db.exec('reset role');
+await db.query("update private.yd_scoped_request_grants set expires_at=now()-interval '1 second' where request_id=$1", [scopedDaily.id]);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(secondaryId)).temporary_sites['scoped-day.example'], undefined);
+assert.equal((await adminPolicy(secondaryId)).sites['scoped-day.example'], undefined);
+
+// Future shop publications require an approval on both the catalogue and the APK.
+await act('authenticated', adminA);
+await db.query(
+  "insert into public.yd_catalog(owner_id,name,package_name) values ($1,'Existing publication','com.example.existingcatalog')",
+  [adminA]
+);
+await db.exec('reset role');
+const catalogueMigration = '20261112183610_scope_new_catalog_apps.sql';
+await loadMigration(catalogueMigration);
+await loadMigration(catalogueMigration);
+const cataloguePackage = 'com.example.newcatalog';
+const cataloguePath = adminA + '/' + cataloguePackage + '/release.apk';
+await act('authenticated', adminA);
+await db.query(
+  "insert into public.yd_catalog(owner_id,name,package_name,storage_path,apk_url,sha256,version_code) values ($1,'New publication',$2,$3,'https://example.invalid/release.apk',repeat('a',64),1)",
+  [adminA, cataloguePackage, cataloguePath]
+);
+const hasCatalogue = (token, name) => scalar(
+  'select exists(select 1 from public.yd_device_catalog($1) where package_name=$2)', [token, name]
+);
+async function canReadCatalogueApk(phone) {
+  await act('anon', '', true, phone.app_token);
+  await db.query("select set_config('request.headers',$1,false)", [
+    JSON.stringify({ 'x-yidream-app-token': phone.app_token, 'x-yidream-device-token': phone.token })
+  ]);
+  return scalar('select public.yd_can_read_apk($1)', [cataloguePath]);
+}
+assert.equal(await canReadCatalogueApk(recoveredPhone), false);
+assert.equal(await hasCatalogue(recoveredPhone.token, cataloguePackage), false);
+assert.equal(await hasCatalogue(recoveredPhone.token, 'com.example.existingcatalog'), true);
+const catalogueRequestId = freshRequestId();
+await requestApp(recoveredPhone.token, cataloguePackage, catalogueRequestId);
+await act('authenticated', adminA);
+const catalogueRequest = (await adminAppRequests()).find(request => request.client_request_id === catalogueRequestId);
+await reviewScoped('app', catalogueRequest.id, 'approved');
+assert.equal(await canReadCatalogueApk(recoveredPhone), true);
+assert.equal(await hasCatalogue(recoveredPhone.token, cataloguePackage), true);
+assert.equal(await canReadCatalogueApk(firstPhone), false);
+assert.equal(await hasCatalogue(firstPhone.token, cataloguePackage), false);
+await act('authenticated', adminA);
+await reviewScoped('app', catalogueRequest.id, 'revoked');
+assert.equal(await canReadCatalogueApk(recoveredPhone), false);
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');

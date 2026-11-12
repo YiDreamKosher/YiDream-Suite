@@ -1,5 +1,12 @@
 // Account controls inherit the language chosen inside the signed-in Suite.
 const copy = {
+ 'Appliquer à': ['Apply to','החלה על','אָנווענדן אויף'],
+ 'Appareil demandeur': ['Requesting device','המכשיר המבקש','דער דיווייס וואָס האָט געבעטן'],
+ 'Appareils du même client': ['Devices of the same client','מכשירים של אותו לקוח','דיווייסעס פֿון זעלבן קליענט'],
+ 'Appareils sélectionnés': ['Selected devices','מכשירים נבחרים','אויסגעקליבענע דיווייסעס'],
+ 'Tous les Android éligibles de cette boutique': ['All eligible Android devices in this shop','כל מכשירי Android המתאימים בחנות זו','אַלע פּאַסיקע Android דיווייסעס אין דער קראָם'],
+ 'Ajouter des appareils à la demande': ['Add devices to this approval','הוספת מכשירים לאישור','צולייגן דיווייסעס צו דער דערלויבעניש'],
+ 'Sélectionnez au moins un appareil supplémentaire.': ['Select at least one additional device.','בחרו לפחות מכשיר אחד נוסף.','קלײַבט כאָטש איין צוגעלייגטן דיווייס.'],
  'Comptes et appareils': ['Accounts and devices','חשבונות ומכשירים','קאָנטעס און דיווייסעס'],
  'Créer un compte ou associer un appareil': ['Create an account or link a device','יצירת חשבון או שיוך מכשיר','שאַפֿן אַ קאָנטע אָדער פֿאַרבינדן אַ דיווייס'],
  'Créez un compte maintenant, puis associez-le à un téléphone Android configuré.': ['Create an account now, then link it to a configured Android phone.','צרו חשבון עכשיו ושייכו אותו לטלפון Android מוגדר.','שאַפֿט איצט אַ קאָנטע און פֿאַרבינדט זי שפּעטער מיט אַ צוגעגרייטן Android טעלעפֿאָן.'],

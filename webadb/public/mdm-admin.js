@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady, siteRequestWindow, isDeviceId } from './mdm-model.js?v=20261112-account-windows';
 import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261112';
-import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261112-account-windows';
+import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261112-device-management';
 import { checkPlayCatalog } from './mdm-play-updates.js?v=20261106';
 import { inspectApk } from './mdm-apk.js?v=20261030';
 const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
@@ -76,11 +76,67 @@ function errorMessage(error) {
     APP_ACCESS_DENIED: 'Cette opération n’est pas disponible pour ce compte ou cet appareil.',
     CONFIGURED_DEVICE_REQUIRED: 'Choisissez l’identifiant d’un appareil Android configuré dans votre espace.',
     SITE_WINDOW_EXPIRED: 'La date de fin souhaitée est passée.',
+    MP3_WEB_DISABLED: 'Le profil MP3 ne permet pas d’autoriser un site.',
+    INVALID_REQUEST_SCOPE: 'La sélection contient un appareil indisponible. Vérifiez les appareils choisis.',
+    SCOPED_RULE_LIMIT: 'Un appareil a atteint la limite de règles. La décision n’a pas été enregistrée.',
     SITE_REQUEST_NOT_AVAILABLE: 'Cette demande a changé ou n’est plus disponible. Actualisez la liste.'
   };
   return messages[error.message] || error.message || 'Connexion impossible. Réessayez.';
 }
 async function task(b,operation){if(b)b.disabled=true;try{await operation();}catch(e){status(errorMessage(e),true,isCatalogSchemaError(e));}finally{if(b)b.disabled=false;}}
+
+function requestScope(device) {
+  const eligible = device && devices.filter(target => target.id !== device.id &&
+    target.user_id === device.user_id && target.platform === 'Android' &&
+    target.configuration_status === 'configured');
+  if (!eligible?.length) return null;
+  const control = document.createElement('div');
+  control.className = 'request-scope';
+  const label = text('label', accountCopy('Appliquer à'));
+  const mode = document.createElement('select');
+  const clientDevices = device.client_id
+    ? eligible.filter(target => target.client_id === device.client_id)
+    : [];
+  for (const [value, title] of [
+    ['device', 'Appareil demandeur'],
+    ...(clientDevices.length ? [['client', 'Appareils du même client']] : []),
+    ['selected', 'Appareils sélectionnés'],
+    ['shop', 'Tous les Android éligibles de cette boutique']
+  ]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = accountCopy(title);
+    mode.append(option);
+  }
+  label.append(mode);
+  const list = document.createElement('fieldset');
+  list.hidden = true;
+  list.append(text('legend', accountCopy('Ajouter des appareils à la demande')));
+  for (const target of eligible) {
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = target.id;
+    const label = text('label', deviceLabel(target, clients));
+    label.prepend(input);
+    list.append(label);
+  }
+  mode.onchange = () => { list.hidden = mode.value !== 'selected'; };
+  control.append(label, list);
+  return {
+    control,
+    selection() {
+      if (mode.value === 'client') {
+        return { target_devices: [device.id, ...clientDevices.map(target => target.id)], all_devices: false };
+      }
+      const targets = Array.from(list.querySelectorAll('input:checked'), input => input.value);
+      if (mode.value === 'selected' && !targets.length) {
+        throw Error(accountCopy('Sélectionnez au moins un appareil supplémentaire.'));
+      }
+      return { target_devices: mode.value === 'selected' ? [device.id, ...targets] : null, all_devices: mode.value === 'shop' };
+    }
+  };
+}
+
 function renderRequests() {
   const container = $('requests');
   container.replaceChildren();
@@ -137,15 +193,23 @@ function renderRequests() {
       note.rows = 2;
       note.setAttribute('aria-label', note.placeholder);
       row.append(note);
+      const scope = wantsAllow && actions.some(([decision]) => decision === 'approved')
+        ? requestScope(device) : null;
+      if (scope) row.append(scope.control);
       const actionBar = document.createElement('div');
       actionBar.className = 'row-actions';
       for (const [decision, label, kind] of actions) {
         const action = button(label, kind);
         action.onclick = () => task(action, async () => {
-          const reviewRpc = isApp ? 'yd_review_app_access' : 'yd_review_site';
-          check(await db.rpc(reviewRpc, { request_id: request.id, decision, note: note.value }));
+          const targets = decision === 'approved' && scope ? scope.selection() : { target_devices: null, all_devices: false };
+          const result = device?.platform !== 'Android' && !isApp
+            ? check(await db.rpc('yd_review_site', { request_id: request.id, decision, note: note.value }))
+            : check(await db.rpc('yd_review_device_request', {
+            request_kind: isApp ? 'app' : 'site', request_id: request.id, decision, note: note.value, ...targets
+          }));
           await load();
-          status('Décision enregistrée.');
+          status(decision === 'approved' && result > 1
+            ? `Autorisation enregistrée pour ${result} appareils.` : 'Décision enregistrée.');
         });
         actionBar.append(action);
       }

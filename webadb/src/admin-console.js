@@ -464,7 +464,7 @@ function bindDeviceDetails(data, rerender, reload) {
   deviceId: device.id, language: adminLanguage, api: cloud
  });
  mountDeviceControls(detail.querySelector('[data-device-controls]'), {
-  device, clients: data.clients, language: adminLanguage, packages: knownAppPackages, api: cloud,
+  device, devices: data.devices, clients: data.clients, language: adminLanguage, packages: knownAppPackages, api: cloud,
   onAssignment(clientId) {
    const cell = Array.from(document.querySelectorAll('[data-device-client]'))
     .find(element => element.dataset.deviceClient === device.id);

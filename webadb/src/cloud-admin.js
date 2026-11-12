@@ -175,6 +175,18 @@ export function loadDevicePolicy(id) {
   return deviceRpc('yd_admin_device_policy', { target_device: id });
 }
 
+export function saveDeviceControls(id, profile, appRequests, siteRequests) {
+  return deviceRpc('yd_admin_set_device_controls', {
+    target_device: id, profile, app_requests_enabled: appRequests, site_requests_enabled: siteRequests
+  });
+}
+
+export function saveRequestPermissions(ids, appRequests, siteRequests) {
+  return deviceRpc('yd_admin_set_request_permissions', {
+    target_devices: ids, app_requests_enabled: appRequests, site_requests_enabled: siteRequests
+  });
+}
+
 export function setDeviceRule(id, kind, target, allowed) {
   return deviceRpc('yd_set_device_rule', {
     target_device: id, rule_kind: kind, rule_target: target, allowed
