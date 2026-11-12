@@ -1,5 +1,7 @@
 import { fetchCurrentApk } from './current-apk.js';
 import { mountUsbEnrollment } from './usb-enrollment.js';
+import { profileApps } from './android-profiles.js';
+import { deviceCopy } from './device-control-copy.js';
 // YiDream v1.2 — interface de YiDream Android (configurateur Web ADB) branchée sur la vraie logique.
 import { YiDreamAdb, parseExtraPackages } from './adb.js';
 import { CONFIG } from './config.js';
@@ -12,7 +14,13 @@ const appCatalog = {
   'Boutique d’applications': [['Google Play Store','com.android.vending']]
 };
 const defaultBlockedPackages = new Set(Object.values(appCatalog).flat().map(([,pkg]) => pkg));
-export const knownAppPackages = Object.values(appCatalog).flat();
+export function knownAppPackages(language) {
+  return [
+    ...Object.values(appCatalog).flat(),
+    ...profileApps('qin').filter(app => app.packageName)
+      .map(app => [app.builtIn ? deviceCopy(language, app.name) : app.name, app.packageName])
+  ];
+}
 
 const client = new YiDreamAdb();
 const state = { blocking: { browsers: true, ai: true, social: true, store: true, extra: '', packages: new Set(defaultBlockedPackages) }, bundledApk: null };
@@ -246,11 +254,7 @@ export const androidNav = ['Connect', 'Install YiDream', 'Device Owner', 'Config
 export function renderAndroidWizard(host, options) {
   disposeAndroidWizard();
   current = null;
-  const keys = ['browsers', 'assistants', 'social', 'stores'];
-  const groups = Object.values(appCatalog).map((entries, index) => ({
-    key: keys[index], packages: entries.map(([, packageName]) => packageName)
-  }));
-  wizard = mountUsbEnrollment(host, client, { ...options, groups, translateError: errText });
+  wizard = mountUsbEnrollment(host, client, { ...options, translateError: errText });
 }
 
 export function disposeAndroidWizard() {

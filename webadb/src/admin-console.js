@@ -440,7 +440,7 @@ function bindDeviceDetails(data, rerender, reload) {
  if (!detail || !device) return;
  const copy = key => deviceCopy(adminLanguage, key);
  mountDeviceControls(detail.querySelector('[data-device-controls]'), {
-  device, clients: data.clients, language: adminLanguage, packages: knownAppPackages, api: cloud,
+  device, clients: data.clients, language: adminLanguage, packages: knownAppPackages(adminLanguage), api: cloud,
   onAssignment(clientId) {
    const cell = Array.from(document.querySelectorAll('[data-device-client]'))
     .find(element => element.dataset.deviceClient === device.id);

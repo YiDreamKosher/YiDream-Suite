@@ -101,6 +101,19 @@ export class YiDreamAdb {
     return r.out.split('\n').some((l) => l.trim() === `package:${pkg}`);
   }
 
+  async listInstalledPackages(serial) {
+    const adb = this.require();
+    if (this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
+    const result = await this.sh(['pm', 'list', 'packages', '--user', '0']);
+    if (this.adb !== adb || this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
+    if (result.exitCode !== null && result.exitCode !== 0) throw new Error('PROFILE_INVENTORY_FAILED');
+    const packages = result.out.split(/\r?\n/)
+      .map(line => line.trim().match(/^package:([^\s]+)$/)?.[1])
+      .filter(packageName => packageName && packageName.length <= 255 && PKG_RE.test(packageName));
+    if (!packages.length) throw new Error('PROFILE_INVENTORY_FAILED');
+    return new Set(packages);
+  }
+
   // Installation / mise à jour (réinstaller par-dessus = update).
   async installApk(blob) {
     const pm = new PackageManager(this.require());
@@ -137,14 +150,26 @@ export class YiDreamAdb {
     await this.sh(launch);
   }
 
-  async confirmConfiguration(serial) {
+  async confirmConfiguration(serial, profileRequestId = null) {
     const adb = this.require();
-    for (let attempt = 0; attempt < 12; attempt += 1) {
+    const command = profileRequestId
+      ? ['cat', CONFIG.profileReceiptRemotePath]
+      : ['ls', '-d', CONFIG.configRemotePath];
+    const attempts = profileRequestId ? 40 : 12;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (this.adb !== adb || this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
-      const result = await this.sh(['ls', '-d', CONFIG.configRemotePath]);
+      const result = await this.sh(command);
       if (this.adb !== adb || this.info?.serial !== serial) throw new Error('NOT_CONNECTED');
-      if (result.exitCode !== 0 && /No such file or directory/i.test(result.out)) return;
-      await sleep(500);
+      if (profileRequestId) {
+        if (result.exitCode === 0 || result.exitCode === null) {
+          try {
+            if (JSON.parse(result.out)?.profile_request_id === profileRequestId) return;
+          } catch {
+            // The phone can be writing the receipt when it is first read.
+          }
+        }
+      } else if (result.exitCode !== 0 && /No such file or directory/i.test(result.out)) return;
+      if (attempt + 1 < attempts) await sleep(500);
     }
     throw new Error('CONFIGURATION_NOT_CONFIRMED');
   }
