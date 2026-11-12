@@ -205,8 +205,8 @@ function renderRequests() {
           const result = device?.platform !== 'Android' && !isApp
             ? check(await db.rpc('yd_review_site', { request_id: request.id, decision, note: note.value }))
             : check(await db.rpc('yd_review_device_request', {
-            request_kind: isApp ? 'app' : 'site', request_id: request.id, decision, note: note.value, ...targets
-          }));
+              request_kind: isApp ? 'app' : 'site', request_id: request.id, decision, note: note.value, ...targets
+            }));
           await load();
           status(decision === 'approved' && result > 1
             ? `Autorisation enregistrée pour ${result} appareils.` : 'Décision enregistrée.');
@@ -229,7 +229,10 @@ function renderCatalog(){
   const identity=document.createElement('div');identity.className='app-identity';
   const title=document.createElement('div');title.append(text('strong',app.name),text('small',app.package_name));
   identity.append(text('span',(app.name||'?').slice(0,1),'app-avatar'),title);
-  const detail=document.createElement('div');detail.className='app-detail';detail.append(text('p',app.description||'Application Android'),text('small',app.is_base?'Application de base':'Votre catalogue'));
+  const detail=document.createElement('div');detail.className='app-detail';
+  const audience = app.is_base ? 'Application de base' :
+    app.requires_device_approval ? accountCopy('Appareils autorisés uniquement') : 'Votre catalogue';
+  detail.append(text('p',app.description||'Application Android'),text('small',audience));
   const release=document.createElement('div');release.className='app-release';release.append(text('small',app.version_name?'Version '+app.version_name:'APK à préparer'),text('span',!app.enabled?'Masquée':releaseReady(app)?'Disponible':'À compléter','pill '+(app.enabled&&releaseReady(app)?'approved':'pending')));
   const actions=document.createElement('div');actions.className='row-actions';
   if(isOwner||app.owner_id===currentUser.id){const edit=button('Publier une version');edit.onclick=()=>fillApp(app);const toggle=button(app.enabled?'Masquer':'Afficher','ghost');toggle.onclick=()=>task(toggle,async()=>{check(await db.from('yd_catalog').update({enabled:!app.enabled}).eq('id',app.id));await load();});actions.append(edit,toggle);}

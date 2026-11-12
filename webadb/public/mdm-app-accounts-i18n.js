@@ -4,6 +4,7 @@ const copy = {
  'Appareil demandeur': ['Requesting device','המכשיר המבקש','דער דיווייס וואָס האָט געבעטן'],
  'Appareils du même client': ['Devices of the same client','מכשירים של אותו לקוח','דיווייסעס פֿון זעלבן קליענט'],
  'Appareils sélectionnés': ['Selected devices','מכשירים נבחרים','אויסגעקליבענע דיווייסעס'],
+ 'Appareils autorisés uniquement': ['Approved devices only','מכשירים מורשים בלבד','נאָר דערלויבטע דיווייסעס'],
  'Tous les Android éligibles de cette boutique': ['All eligible Android devices in this shop','כל מכשירי Android המתאימים בחנות זו','אַלע פּאַסיקע Android דיווייסעס אין דער קראָם'],
  'Ajouter des appareils à la demande': ['Add devices to this approval','הוספת מכשירים לאישור','צולייגן דיווייסעס צו דער דערלויבעניש'],
  'Sélectionnez au moins un appareil supplémentaire.': ['Select at least one additional device.','בחרו לפחות מכשיר אחד נוסף.','קלײַבט כאָטש איין צוגעלייגטן דיווייס.'],
