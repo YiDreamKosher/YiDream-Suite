@@ -24,6 +24,70 @@
   margin-block-start: 12px;
 }
 
+.setup-profiles {
+  margin: 16px 0;
+  padding: 0;
+  border: 0;
+}
+
+.setup-profiles legend {
+  margin-block-end: 8px;
+  font-weight: 700;
+}
+
+.setup-profile-choices,
+.setup-profile-apps ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-profile-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.setup-profile-choice:has(:checked) {
+  border-color: var(--accent, #6d51d7);
+  background: var(--soft, #f8f6ff);
+}
+
+#androidWorkspace .setup-profile-choice input {
+  width: auto;
+  min-height: 0;
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent, #6d51d7);
+}
+
+.setup-profile-choice small,
+.setup-profile-apps li small,
+.setup-profile-apps li code {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.setup-profile-apps ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.setup-profile-apps li {
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #fff;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
 .setup-categories,
 .setup-contact {
   display: grid;
@@ -209,6 +273,7 @@
 
 @media (max-width: 620px) {
   .setup-contact,
+  .setup-profile-apps ul,
   .device-client-form,
   .device-rule-form {
     grid-template-columns: 1fr;

@@ -1,5 +1,6 @@
 import { CONFIG } from './config.js';
 import { parseExtraPackages } from './adb.js';
+import { profileAllowList } from './android-profiles.js';
 
 /** Keep the phone's own preparation separate from the saved fleet record. */
 export async function preparePhone(client, release, report = () => {}) {
@@ -41,5 +42,14 @@ export function phoneConfiguration(packages, extraText, material) {
     block_browsers: false, block_ai: false, block_social: false, block_store: false,
     extra_packages: [...new Set([...packages, ...extra.valid])],
     unlock_intermediate_key: material.intermediate_key
+  };
+}
+
+export function phoneProfileConfiguration(profile, installed, extraText, material, requestId = crypto.randomUUID()) {
+  return {
+    ...phoneConfiguration([], '', material),
+    app_profile: profile,
+    profile_request_id: requestId,
+    allowed_packages: profileAllowList(profile, installed, extraText)
   };
 }
