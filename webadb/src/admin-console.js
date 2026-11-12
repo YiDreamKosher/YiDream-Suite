@@ -4,6 +4,7 @@ import * as cloud from './cloud-admin.js';
 import { renderAndroidWizard, disposeAndroidWizard, disconnectAndroidWorkspace, knownAppPackages } from './ui-android.js';
 import { mountDeviceControls } from './device-controls.js';
 import { deviceCopy } from './device-control-copy.js';
+import { mountMaintenanceCode } from './maintenance-code.js';
 import './device-controls.css';
 import './admin-simple.css';
 import { runGate } from './gate.js';
@@ -204,19 +205,23 @@ function shell(){
  document.querySelectorAll('[data-platform-action]').forEach(b=>b.onclick=openAndroidConfigurator);document.querySelectorAll('[data-open-android]').forEach(b=>b.onclick=openAndroidConfigurator);
 }
 
+let hideMaintenanceCode = () => {};
 function renderOwnerPortal(){
+ hideMaintenanceCode();
  if(state.ownerPage!=='android')disposeAndroidWizard();
  const d=state.ownerData||{applications:[],admins:[],stores:[],clients:[],devices:[],logs:[]};
- const tabs=[['dashboard','Accueil'],['yzmdm','Statistiques YZ MDM'],['applications','Candidatures'],['admins','Administrateurs'],['stores','Magasins'],['clients','Clients'],['devices','Appareils']];
+ const tabs=[['dashboard','Accueil'],['yzmdm','Statistiques YZ MDM'],['applications','Candidatures'],['admins','Administrateurs'],['stores','Magasins'],['clients','Clients'],['devices','Appareils'],['maintenance',deviceCopy(adminLanguage,'maintenanceTitle')]];
  const ownerNavButton=([key,label])=>`<button data-owner-page="${key}" class="${state.ownerPage===key?'active':''}">${label}</button>`;
  const tabButtons=tabs.filter(([key])=>['dashboard','devices'].includes(key)).map(ownerNavButton).join('');
- const ownerManagement=`<details class="suite-secondary" ${['applications','admins','stores','clients','yzmdm','mdm-pair'].includes(state.ownerPage)?'open':''}><summary>Gestion propriétaire</summary><nav class="nav">${tabs.filter(([key])=>!['dashboard','devices'].includes(key)).map(ownerNavButton).join('')}<button data-mdm-view="pair">Comptes et appareils</button></nav></details>`;
+ const ownerManagement=`<details class="suite-secondary" ${['applications','admins','stores','clients','yzmdm','mdm-pair','maintenance'].includes(state.ownerPage)?'open':''}><summary>Gestion propriétaire</summary><nav class="nav">${tabs.filter(([key])=>!['dashboard','devices'].includes(key)).map(ownerNavButton).join('')}<button data-mdm-view="pair">Comptes et appareils</button></nav></details>`;
  const mdmView=mdmViewForPage(state.ownerPage);
  let body='';
  if(mdmView&&mdmView!=='home'){
   body=mdmFrameMarkup(mdmView);
  }else if(state.ownerPage==='yzmdm'){
   body='<section class="panel" id="yzMdmStats"><div class="empty">Chargement des statistiques YZ MDM…</div></section>';
+ }else if(state.ownerPage==='maintenance'){
+  body='<section id="ownerMaintenanceCode" class="panel"></section>';
  }else if(state.ownerPage==='android'){
   body='<div id="ownerAndroidWorkspace"></div>';
  }else if(state.ownerPage==='dashboard'){
@@ -235,7 +240,10 @@ function renderOwnerPortal(){
  if(mdmView==='home')body=welcomeMarkup()+mdmFrameMarkup('home')+`<section class="suite-owner-summary"><span>Gestion propriétaire</span><div><button class="link" data-owner-page="applications">${d.applications.filter(x=>x.status==='pending').length} candidatures en attente →</button><button class="link" data-owner-page="admins">Gérer les administrateurs →</button></div></section>`;
  app.innerHTML=`<div class="shell"><aside class="side"><div class="brand"><img src="${adminLogoUrl}" alt="Logo YiDream Admin">YiDream <span class="suite-word">Suite</span></div><div class="workspace">Console propriétaire</div><nav class="nav">${tabButtons}</nav>${appNavigation()}${ownerManagement}<div class="side-bottom"><div class="account-copy"><b>${esc(state.session?.user?.email||'Propriétaire')}</b><small>Gestion globale YiDream</small></div><button id="ownerLogout" class="logout-button" style="margin-top:12px">Se déconnecter</button></div></aside><main class="main"><header class="topbar"><span class="crumb">YiDream Suite / <b>${mdmView?MDM_TITLES[mdmView]:state.ownerPage==='android'?'Configurer un téléphone':tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration'}</b></span><div class="top-actions"><span class="role">PROPRIÉTAIRE</span><span class="hebrew-decor" dir="rtl" lang="he" aria-hidden="true">בס״ד</span></div></header><section class="content owner-content ${mdmView==='home'?'owner-content-home':''}">${mdmView||state.ownerPage==='android'?'':head(tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration','')}${body}</section></main></div>`;
  document.querySelectorAll('[data-owner-page]').forEach(b=>b.onclick=()=>{if(b.dataset.ownerPage==='dashboard'){navigateMdm('home');return}clearMdmHash();state.ownerPage=b.dataset.ownerPage;renderOwnerPortal()});document.querySelectorAll('[data-open-android]').forEach(b=>b.onclick=openAndroidConfigurator);if(state.ownerPage==='android')mountAndroidWorkspace($('#ownerAndroidWorkspace'));
- $('#ownerLogout').onclick=async()=>{await disconnectAndroidWorkspace().catch(()=>{});await cloud.signOut();state.session=null;state.data=null;state.ownerData=null;publicPortal()};
+ if(state.ownerPage==='maintenance'){
+  hideMaintenanceCode=mountMaintenanceCode($('#ownerMaintenanceCode'),adminLanguage,cloud.getAndroidMaintenanceCode);
+ }
+ $('#ownerLogout').onclick=async()=>{hideMaintenanceCode();await disconnectAndroidWorkspace().catch(()=>{});await cloud.signOut();state.session=null;state.data=null;state.ownerData=null;publicPortal()};
  document.querySelectorAll('[data-review]').forEach(b=>b.onclick=async()=>{try{await cloud.reviewAdminApplication(b.dataset.id,b.dataset.review==='approve');await reloadOwner()}catch(e){notify(errorText(e))}});
  document.querySelectorAll('[data-application-mail]').forEach(button=>{const id=button.dataset.applicationMail;const status=document.getElementById('mail-'+id);const update=async()=>{const rows=await cloud.applicationEmailStatus(id);if(status)status.textContent=rows?.some(x=>x.event===button.dataset.applicationStatus&&x.status==='sent')?'Message de suivi envoyé':'Message de suivi en attente';};update();button.onclick=async()=>{button.disabled=true;try{await cloud.sendApplicationEmail(id);await update();}finally{button.disabled=false;}};});
  document.querySelectorAll('[data-admin-access]').forEach(b=>b.onclick=async()=>{const enabled=b.dataset.enabled==='true';if(enabled&&!confirm('Rétablir l’accès administrateur de ce compte ?'))return;if(!enabled&&!confirm('Suspendre l’accès administrateur de ce compte ? Ses données seront conservées.'))return;try{await cloud.setPlatformAdminAccess(b.dataset.adminAccess,enabled);await reloadOwner()}catch(e){notify(errorText(e))}});

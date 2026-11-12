@@ -218,3 +218,9 @@
     justify-self: start;
   }
 }
+
+.maintenance-code-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+}

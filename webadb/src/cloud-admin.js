@@ -120,6 +120,10 @@ export async function getAndroidUnlockMaterial(){
   return data;
 }
 
+export function getAndroidMaintenanceCode(){
+  return deviceRpc('get_android_maintenance_code');
+}
+
 export async function setDeviceConfigured(id,configured){
   const {error}=await mustDb().rpc('set_device_configured',{target_device_id:id,is_configured:configured});
   if(error)throw error;

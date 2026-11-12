@@ -1,6 +1,21 @@
 const locales = ['en', 'fr', 'he', 'yi'];
 
 const copy = {
+  maintenanceTitle: ['Maintenance code', 'Code de maintenance', 'קוד תחזוקה', 'וישאַלט־קאָד'],
+  maintenanceHint: [
+    'Use this six-character code in Settings → Filter → Remove filter on the phone.',
+    'Saisissez ce code à six caractères sur le téléphone dans Réglages → Filtre → Supprimer le filtre.',
+    'הזינו את הקוד בן ששת התווים בטלפון בהגדרות ← סינון ← הסרת הסינון.',
+    'שרײַבט דעם זעקס־צייכנס קאָד אויפֿן טעלעפֿאָן אין סעטינגס ← פֿילטער ← אַראָפּנעמען דעם פֿילטער.'
+  ],
+  maintenanceReveal: ['Show today’s code', 'Afficher le code du jour', 'הצגת הקוד היומי', 'ווײַזן דעם הײַנטיקן קאָד'],
+  maintenanceUnavailable: [
+    'Could not load the code. Check your owner session and try again.',
+    'Impossible de charger le code. Vérifiez votre connexion à l’espace propriétaire, puis réessayez.',
+    'טעינת הקוד נכשלה. בדקו את החיבור לחשבון הבעלים ונסו שוב.',
+    'מען קען נישט לאָדן דעם קאָד. קאָנטראָלירט אײַער באַזיצער־חשבון און פּרובירט ווידער.'
+  ],
+  maintenanceDate: ['Code date (UTC)', 'Date du code (UTC)', 'תאריך הקוד (UTC)', 'דאַטע פֿונעם קאָד (UTC)'],
   setup: ['Set up a phone', 'Configurer un téléphone', 'הגדרת טלפון', 'איינשטעלן אַ טעלעפֿאָן'],
   connect: ['Connect', 'Brancher', 'חיבור', 'פֿאַרבינדן'],
   prepare: ['Prepare', 'Préparer', 'הכנה', 'צוגרייטן'],

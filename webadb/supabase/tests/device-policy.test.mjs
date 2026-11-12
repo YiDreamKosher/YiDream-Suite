@@ -486,5 +486,39 @@ assert.equal(await siteRequest(nextPhone.token, dailyRequest), undefined);
 await act('authenticated', adminA);
 await assert.rejects(() => reviewSite(staleSite.id, 'approved'), /SITE_REQUEST_NOT_AVAILABLE/);
 
+// Match the provisioning code format without using any production key material.
+await db.exec('reset role');
+await db.exec(`
+  create function extensions.hmac(data bytea, key bytea, algorithm text) returns bytea
+  language sql immutable as $$ select sha256($1 || $2) $$;
+`);
+await loadMigration('20261008000000_android_admin_unlock_key.sql');
+await loadMigration('20261112160453_android_owner_maintenance_code.sql');
+const maintenanceCode = () => scalar('select public.get_android_maintenance_code()');
+
+await act('anon');
+await assert.rejects(maintenanceCode, /permission denied/);
+await act('authenticated', customer);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+assert.ok((await scalar('select public.get_android_unlock_material()')).intermediate_key);
+await act('authenticated', owner, false);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+
+await db.exec('reset role');
+await db.query("update auth.sessions set not_after = now() - interval '1 second' where id = $1", [owner]);
+await act('authenticated', owner);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+await db.exec('reset role');
+await db.query('update auth.sessions set not_after = null where id = $1', [owner]);
+await act('authenticated', owner);
+const [{ material, maintenance }] = (await db.query(
+  'select public.get_android_unlock_material() as material, public.get_android_maintenance_code() as maintenance'
+)).rows;
+assert.deepEqual(maintenance, { code: material.code, date: material.date });
+assert.match(maintenance.code, /^[0-9A-F]{6}$/);
+assert.match(maintenance.date, /^\d{4}-\d{2}-\d{2}$/);
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
