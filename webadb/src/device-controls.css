@@ -180,6 +180,18 @@
   display: none;
 }
 
+.device-rule-expiry {
+  grid-column: 1 / -1;
+  max-width: 300px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.device-rule-expiry input {
+  display: block;
+  margin-block-start: 5px;
+}
+
 .device-rules [data-policy-error] {
   color: #a33138;
 }

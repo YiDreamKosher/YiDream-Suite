@@ -1,4 +1,4 @@
-export const VIEWS = Object.freeze({home:'Accueil',catalog:'Boutique d’applications',requests:'Demandes de sites',pair:'Associer un appareil'});
+export const VIEWS = Object.freeze({home:'Accueil',catalog:'Boutique d’applications',requests:'Demandes d’accès',pair:'Associer un appareil'});
 const legacy = Object.freeze({'#homePanel':'home','#catalogPanel':'catalog','#catalogForm':'catalog','#requestsPanel':'requests','#pairPanel':'pair'});
 export function resolveView(search, hash) {
   const query = new URLSearchParams(search).get('view');

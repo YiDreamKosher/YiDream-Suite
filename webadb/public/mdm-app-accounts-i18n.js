@@ -1,5 +1,50 @@
 // Account controls inherit the language chosen inside the signed-in Suite.
 const copy = {
+ 'Comptes et appareils': ['Accounts and devices','חשבונות ומכשירים','קאָנטעס און דיווייסעס'],
+ 'Créer un compte ou associer un appareil': ['Create an account or link a device','יצירת חשבון או שיוך מכשיר','שאַפֿן אַ קאָנטע אָדער פֿאַרבינדן אַ דיווייס'],
+ 'Créez un compte maintenant, puis associez-le à un téléphone Android configuré.': ['Create an account now, then link it to a configured Android phone.','צרו חשבון עכשיו ושייכו אותו לטלפון Android מוגדר.','שאַפֿט איצט אַ קאָנטע און פֿאַרבינדט זי שפּעטער מיט אַ צוגעגרייטן Android טעלעפֿאָן.'],
+ 'Créer le compte': ['Create account','יצירת חשבון','שאַפֿן אַ קאָנטע'],
+ 'Vos comptes': ['Your accounts','החשבונות שלכם','אײַערע קאָנטעס'],
+ 'Associer un appareil': ['Link a device','שיוך מכשיר','פֿאַרבינדן אַ דיווייס'],
+ 'Nouveau code d’activation': ['New activation code','קוד הפעלה חדש','נײַער אַקטיוויזירונג־קאָד'],
+ 'Si ce téléphone a déjà un compte, la saisie du code remplacera son accès actuel.': ['If this phone already has an account, entering the code replaces its current access.','אם כבר משויך חשבון לטלפון, הזנת הקוד תחליף את הגישה הקיימת.','אויב דער טעלעפֿאָן האָט שוין אַ קאָנטע, וועט דער קאָד פֿאַרבײַטן דעם איצטיקן צוטריט.'],
+ 'Vérifiez l’e-mail et saisissez un numéro avec son indicatif international.': ['Check the email and enter a phone number with its country code.','בדקו את הדוא״ל והזינו מספר טלפון עם קידומת המדינה.','קאָנטראָלירט דעם אימעיל און לייגט אַרײַן אַ טעלעפֿאָן־נומער מיטן לאַנד־קאָד.'],
+ 'Ce compte ne peut plus être associé. Actualisez la liste.': ['This account can no longer be linked. Refresh the list.','אי אפשר עוד לשייך חשבון זה. רעננו את הרשימה.','מען קען מער נישט פֿאַרבינדן די קאָנטע. דערפֿרישט די רשימה.'],
+ 'Ce compte est déjà associé à un autre appareil.': ['This account is already linked to another device.','חשבון זה כבר משויך למכשיר אחר.','די קאָנטע איז שוין פֿאַרבונדן מיט אַן אַנדער דיווייס.'],
+ 'Cette opération n’est pas disponible pour ce compte ou cet appareil.': ['This action is unavailable for this account or device.','פעולה זו אינה זמינה לחשבון או למכשיר הזה.','די אַקציע איז נישט פֿאַראַן פֿאַר דער קאָנטע אָדער דעם דיווייס.'],
+ 'La date de fin souhaitée est passée.': ['The requested end date has passed.','מועד הסיום המבוקש עבר.','די געבעטע סוף־דאַטע איז פֿאַרבײַ.'],
+ 'La mise à jour du service MDM doit être activée par le responsable de votre espace.': ['Your workspace owner needs to enable the MDM service update.','בעל סביבת הניהול צריך להפעיל את עדכון שירות ה־MDM.','דער אייגנטימער דאַרף אַקטיווירן די MDM דינסט־דערהײַנטיקונג.'],
+ 'Identifiant de l’appareil configuré': ['Configured device ID','מזהה המכשיר המוגדר','אידענטיפֿיקאַטאָר פֿונעם צוגעגרייטן דיווייס'],
+ 'Collez l’identifiant donné après la configuration Android ou choisissez un appareil de votre espace.': ['Paste the ID shown after Android setup or choose a device in your workspace.','הדביקו את המזהה שהוצג אחרי הגדרת Android או בחרו מכשיר מסביבת הניהול שלכם.','קלעפּט אַרײַן דעם אידענטיפֿיקאַטאָר פֿון דער Android אײַנשטעלונג אָדער קלײַבט אַ דיווייס פֿון אײַער פּלאַץ.'],
+ 'Créer un code d’activation': ['Create activation code','יצירת קוד הפעלה','שאַפֿן אַן אַקטיוויזירונג־קאָד'],
+ 'Fermer': ['Close','סגירה','פֿאַרמאַכן'],
+ 'Le téléphone sera associé après la saisie de ce code dans l’application.': ['The phone will be linked when this code is entered in the app.','הטלפון ישויך לאחר הזנת הקוד באפליקציה.','דער טעלעפֿאָן וועט זיך פֿאַרבינדן ווען מען לייגט אַרײַן דעם קאָד אין דער אַפּ.'],
+ 'Expire le': ['Expires','תוקף עד','גילטיק ביז'],
+ 'Activation en attente': ['Activation pending','ממתין להפעלה','וואַרט אויף אַקטיוויזירונג'],
+ 'En attente d’un appareil': ['Awaiting a device','ממתין לשיוך מכשיר','וואַרט אויף אַ דיווייס'],
+ 'Aucun compte': ['No accounts yet','עדיין אין חשבונות','נאָך ניטאָ קיין קאָנטעס'],
+ 'Vous pouvez créer un compte avant de configurer un téléphone.': ['You can create an account before setting up a phone.','אפשר ליצור חשבון לפני הגדרת טלפון.','איר קענט שאַפֿן אַ קאָנטע פֿאַרן אײַנשטעלן אַ טעלעפֿאָן.'],
+ 'Aucun appareil Android configuré. Vous pouvez quand même créer des comptes.': ['No configured Android devices. You can still create accounts.','אין מכשירי Android מוגדרים. עדיין אפשר ליצור חשבונות.','קיין צוגעגרייטע Android דיווייסעס. איר קענט נאָך שאַפֿן קאָנטעס.'],
+ 'Compte créé. Vous pourrez lui associer un appareil à tout moment.': ['Account created. You can link a device any time.','החשבון נוצר. אפשר לשייך לו מכשיר בכל עת.','די קאָנטע איז געשאַפֿן. איר קענט זי פֿאַרבינדן מיט אַ דיווייס אין יעדן צײַט.'],
+ 'Choisissez l’identifiant d’un appareil Android configuré dans votre espace.': ['Choose the ID of a configured Android device in your workspace.','בחרו מזהה של מכשיר Android מוגדר בסביבת הניהול שלכם.','קלײַבט דעם אידענטיפֿיקאַטאָר פֿון אַ צוגעגרייטן Android דיווייס אין אײַער פּלאַץ.'],
+ 'En attente': ['Pending','ממתין','אין וואַרטע'],
+ 'Acceptée': ['Approved','אושרה','באַשטעטיקט'],
+ 'Refusée': ['Rejected','נדחתה','אָפּגעזאָגט'],
+ 'Révoquée': ['Revoked','בוטלה','צוריקגענומען'],
+ 'Expirée': ['Expired','פג תוקף','אויסגעלאָפֿן'],
+ 'Fin de l’autorisation': ['Approval ends','סיום האישור','סוף דער דערלויבעניש'],
+ 'Cette demande a changé ou n’est plus disponible. Actualisez la liste.': ['This request changed or is no longer available. Refresh the list.','הבקשה השתנתה או אינה זמינה עוד. רעננו את הרשימה.','די בקשה האָט זיך געביטן אָדער איז מער נישט פֿאַראַן. דערפֿרישט די רשימה.'],
+ 'Date de fin souhaitée': ['Requested end date','מועד סיום מבוקש','געבעטן סוף־דאַטע'],
+ 'Date de fin passée': ['End date passed','מועד הסיום עבר','די סוף־דאַטע איז פֿאַרבײַ'],
+ '24 heures à compter de l’approbation': ['24 hours from approval','24 שעות ממועד האישור','24 שעה פֿון באַשטעטיקונג'],
+
+ 'Demandes d’accès': ['Access requests','בקשות גישה','צוטריט־בקשות'],
+ 'SITES ET APPLICATIONS': ['WEBSITES AND APPS','אתרים ואפליקציות','וועבזײַטן און אַפּס'],
+ 'Demande d’accès à une application': ['App access request','בקשת גישה לאפליקציה','בקשה פֿאַר צוטריט צו אַן אַפּ'],
+ 'Autoriser l’application': ['Allow app','אישור האפליקציה','דערלויבן די אַפּ'],
+ 'Les demandes d’applications seront disponibles après la mise à jour du service.': ['App requests will be available after the service update.','בקשות לאפליקציות יהיו זמינות לאחר עדכון השירות.','אַפּ־בקשות וועלן זײַן פֿאַראַן נאָך דער דערהײַנטיקונג פֿונעם דינסט.'],
+ 'Les décisions s’appliquent à la prochaine synchronisation du téléphone. Les règles de sites concernent le navigateur YiDream.': ['Decisions take effect when the phone next synchronizes. Site rules apply in the YiDream browser.','ההחלטות יחולו בסנכרון הבא של הטלפון. כללי האתרים חלים בדפדפן YiDream.','די באַשלוסן ווערן אָנווענדט בײַם קומענדיקן סינקראָניזירן. די וועבזײַט־כּללים גילטן אינעם YiDream בלעטערער.'],
+ 'Rechercher un site, une application ou un appareil': ['Search for a site, app or device','חיפוש אתר, אפליקציה או מכשיר','זוכן אַ וועבזײַט, אַן אַפּ אָדער אַ מיטל'],
  'Choisissez un appareil approuvé, renseignez ses coordonnées et partagez le code d’activation.': ['Choose an approved device, enter the contact details and share the activation code.','בחרו מכשיר שאושר, הזינו פרטי קשר ושתפו את קוד ההפעלה.','קלײַבט אַ באַשטעטיקטן דיווייס, לייגט אַרײַן די קאָנטאַקט אינפֿאָרמאַציע און טיילט דעם אַקטיוויזירונג־קאָד.'],
  'L’activation remplace l’accès précédent de ce téléphone. Les coordonnées servent au contact.': ['Activation replaces the previous access for this phone. The details are used to contact the user.','ההפעלה מחליפה את הגישה הקודמת לטלפון. הפרטים משמשים ליצירת קשר.','די אַקטיוויזירונג פֿאַרבײַט דעם פֿריִערדיקן צוטריט פֿאַר דעם טעלעפֿאָן. די אינפֿאָרמאַציע דינט צו קאָנטאַקטירן.'],
  'E-mail de contact': ['Contact email','דוא״ל ליצירת קשר','קאָנטאַקט אימעיל'],
@@ -54,6 +99,7 @@ export function translateAccountPanel(panel,language) {
  const walker=document.createTreeWalker(panel,NodeFilter.SHOW_TEXT),nodes=[];
  while(walker.nextNode())nodes.push(walker.currentNode);
  for(const node of nodes){const raw=node.nodeValue,source=raw.trim();node.nodeValue=raw.replace(source,accountText(source,language));}
+ for(const node of panel.querySelectorAll('[placeholder]'))node.setAttribute('placeholder',accountText(node.getAttribute('placeholder'),language));
  for(const node of panel.querySelectorAll('[aria-label]'))node.setAttribute('aria-label',accountText(node.getAttribute('aria-label'),language));
  const code = panel.querySelector('#pairCode');
  if (code) code.dir = 'ltr';

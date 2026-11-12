@@ -87,6 +87,8 @@ await db.exec('reset role');
 const migration = '20261111143137_device_policies_and_usb_activation.sql';
 await loadMigration(migration);
 await loadMigration(migration);
+const appRequestMigration = '20261112141920_offline_app_access_requests.sql';
+await loadMigration(appRequestMigration);
 
 async function act(role, uid = '', live = true, token = '') {
   await db.exec('reset role');
@@ -210,6 +212,50 @@ assert.equal(updated.revision, 3);
 assert.equal((await report(session.token, 1, true)).applied_revision, 1);
 assert.equal((await report(session.token, 3, true)).applied_revision, 3);
 
+const appRequest = '40000000-0000-4000-8000-000000000001';
+const pendingAppRequest = '40000000-0000-4000-8000-000000000002';
+const requestApp = (token, packageName, requestId, reason = '') => scalar(
+  'select public.yd_request_app_access($1,$2,$3,$4)', [token, packageName, reason, requestId]
+);
+const deviceAppRequests = async token =>
+  (await db.query('select * from public.yd_device_app_requests($1)', [token])).rows;
+const adminAppRequests = async () => (await db.query('select * from public.yd_admin_app_requests()')).rows;
+const reviewApp = (requestId, decision, note = '') => db.query(
+  'select public.yd_review_app_access($1,$2,$3)', [requestId, decision, note]
+);
+
+for (const packageName of ['com.android.vending', 'com.android.settings', 'com.yidream.mdm', 'com.invalid;package']) {
+  await assert.rejects(() => requestApp(session.token, packageName, appRequest), /INVALID_APP_REQUEST/);
+}
+assert.deepEqual(await requestApp(session.token, 'com.whatsapp', appRequest, 'Allow my installed app'), {});
+assert.deepEqual(await requestApp(session.token, 'com.example.other', appRequest), {});
+const [appRow] = await deviceAppRequests(session.token);
+assert.equal((await deviceAppRequests(session.token)).length, 1);
+assert.equal(appRow.package_name, 'com.whatsapp');
+assert.equal(appRow.status, 'pending');
+await assert.rejects(() => adminAppRequests(), /permission denied/);
+await assert.rejects(() => db.query('select * from private.yd_app_access_requests'), /permission denied/);
+
+await act('anon');
+await assert.rejects(() => requestApp(session.token, 'com.whatsapp', appRequest), /APP_ACCESS_DENIED/);
+await act('authenticated', legacyCustomer);
+assert.deepEqual(await deviceAppRequests(legacyDevice.token), []);
+await act('authenticated', adminB);
+assert.deepEqual(await adminAppRequests(), []);
+await assert.rejects(() => reviewApp(appRow.id, 'approved'), /APP_REQUEST_NOT_AVAILABLE/);
+await act('authenticated', adminA, false);
+await assert.rejects(() => adminAppRequests(), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+assert.equal((await adminAppRequests())[0].id, appRow.id);
+await reviewApp(appRow.id, 'approved', 'Available on this device');
+assert.equal((await adminPolicy(id)).apps['com.whatsapp'], true);
+await reviewApp(appRow.id, 'revoked');
+assert.equal((await adminPolicy(id)).apps['com.whatsapp'], false);
+await act('anon', '', true, session.app_token);
+assert.equal((await deviceAppRequests(session.token))[0].status, 'revoked');
+assert.deepEqual(await requestApp(session.token, 'com.example.pending', pendingAppRequest), {});
+const staleAppRow = (await deviceAppRequests(session.token)).find(r => r.client_request_id === pendingAppRequest);
+
 await db.exec('reset role');
 await db.query("update public.yd_device_links set app_session_expires_at=now()+interval '1 day' where device_id=$1", [id]);
 await act('anon');
@@ -250,7 +296,195 @@ await assert.rejects(() => redeem(inactiveIssuerClaim.code), /INVALID_ACCOUNT_CO
 
 await db.exec('reset role');
 await loadMigration(migration);
+await loadMigration(appRequestMigration);
 await act('authenticated', owner);
 assert.deepEqual((await adminPolicy(id)).sites, { 'safe.example': false });
+const replacementClaim = await issue(id, 'replacement@example.invalid');
+await act('anon');
+const replacement = await redeem(replacementClaim.code);
+await act('anon', '', true, replacement.app_token);
+assert.deepEqual(await deviceAppRequests(replacement.token), []);
+await act('authenticated', owner);
+await assert.rejects(() => reviewApp(staleAppRow.id, 'approved'), /APP_REQUEST_NOT_AVAILABLE/);
+
+await db.exec('reset role');
+await loadMigration('20261112143012_managed_accounts_and_site_windows.sql');
+await db.query('update public.platform_admins set is_active=true where user_id=$1', [adminA]);
+
+const createAccount = (address, number = phone) => scalar(
+  'select public.yd_admin_create_app_account($1,$2)', [address, number]
+);
+const assignAccount = (accountId, deviceId = id) => scalar(
+  'select public.yd_admin_assign_app_account($1,$2)', [accountId, deviceId]
+);
+const listAccounts = async () => (await db.query('select * from public.yd_list_app_accounts_v2()')).rows;
+const setAccountAccess = (accountId, enabled) => db.query(
+  'select public.yd_set_app_account_access($1,$2)', [accountId, enabled]
+);
+const setWindow = (deviceId, host, expiry) => scalar(
+  'select public.yd_set_temporary_site_rule($1,$2,$3)', [deviceId, host, expiry]
+);
+const phonePolicyV2 = (token) => scalar('select public.yd_get_device_policy_v2($1)', [token]);
+const reportV2 = (token, revision, applied) => scalar(
+  'select public.yd_report_device_policy_v2($1,$2,$3)', [token, revision, applied]
+);
+const requestWindow = (token, url, requestId, hours = null, until = null) => scalar(
+  'select public.yd_request_site_window($1,$2,$3,$4,$5,$6)', [token, url, 'Trip', requestId, hours, until]
+);
+const deviceSiteRequests = async (token) => (
+  await db.query('select * from public.yd_device_requests($1)', [token])
+).rows;
+const reviewSite = (requestId, decision) => db.query('select public.yd_review_site($1,$2)', [requestId, decision]);
+const siteRequest = (token, clientRequestId) => deviceSiteRequests(token).then(
+  (rows) => rows.find((row) => row.client_request_id === clientRequestId)
+);
+
+await act('anon');
+await assert.rejects(() => createAccount(email), /permission denied/);
+await assert.rejects(() => listAccounts(), /permission denied/);
+await assert.rejects(() => db.query('select * from private.yd_temporary_site_rules'), /permission denied/);
+await act('authenticated', adminA, false);
+await assert.rejects(() => createAccount(email), /APP_ACCESS_DENIED/);
+await assert.rejects(() => listAccounts(), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+await assert.rejects(() => createAccount('not-an-email'), /INVALID_CONTACT/);
+const managed = await createAccount('  NEW-CUSTOMER@EXAMPLE.INVALID  ');
+assert.equal(managed.email, 'new-customer@example.invalid');
+assert.equal(managed.device_id, null);
+assert.equal(managed.pending_device_id, null);
+assert.equal(managed.can_assign, true);
+assert.equal((await listAccounts()).find((row) => row.id === managed.id).device_id, null);
+assert.equal((await listAccounts()).find((row) => row.id === replacement.account.id).can_assign, false);
+await assert.rejects(() => assignAccount(managed.id, deviceB), /DEVICE_NOT_AVAILABLE/);
+
+await act('authenticated', adminB);
+assert.ok(!(await listAccounts()).some((row) => row.id === managed.id));
+await assert.rejects(() => assignAccount(managed.id, deviceB), /APP_ACCOUNT_NOT_AVAILABLE/);
+await assert.rejects(() => setAccountAccess(managed.id, false), /APP_ACCESS_DENIED/);
+await act('authenticated', owner);
+assert.ok((await listAccounts()).some((row) => row.id === managed.id));
+
+await act('authenticated', adminA);
+const firstAssignment = await assignAccount(managed.id);
+assert.equal(firstAssignment.account_id, managed.id);
+assert.equal(firstAssignment.device_id, id);
+assert.equal((await listAccounts()).find((row) => row.id === managed.id).pending_device_id, id);
+assert.equal((await listAccounts()).find((row) => row.id === managed.id).device_id, null);
+await act('anon');
+assert.equal((await access(replacement.app_token)).account.id, replacement.account.id);
+await act('authenticated', adminA);
+await setAccountAccess(managed.id, false);
+assert.equal((await listAccounts()).find((row) => row.id === managed.id).pending_device_id, null);
+await setAccountAccess(managed.id, true);
+await act('anon');
+await assert.rejects(() => redeem(firstAssignment.code), /INVALID_ACCOUNT_CODE/);
+
+await act('authenticated', adminA);
+const overwrittenAssignment = await assignAccount(managed.id);
+const legacyIssue = await issue(id, replacement.account.email);
+assert.equal((await listAccounts()).find((row) => row.id === managed.id).pending_device_id, null);
+await act('anon');
+await assert.rejects(() => redeem(overwrittenAssignment.code), /INVALID_ACCOUNT_CODE/);
+assert.equal((await redeem(legacyIssue.code)).account.id, replacement.account.id);
+
+await act('authenticated', adminA);
+const managedIssue = await assignAccount(managed.id);
+await act('anon');
+const managedPhone = await redeem(managedIssue.code);
+assert.equal(managedPhone.account.id, managed.id);
+assert.equal(managedPhone.device_id, id);
+await assert.rejects(() => redeem(managedIssue.code), /INVALID_ACCOUNT_CODE/);
+await act('authenticated', adminA);
+assert.equal((await listAccounts()).find((row) => row.id === managed.id).device_id, id);
+await act('authenticated', owner);
+await assert.rejects(() => assignAccount(managed.id, deviceB), /APP_ACCOUNT_ALREADY_LINKED/);
+
+const dailyRequest = '50000000-0000-4000-8000-000000000001';
+const tripRequest = '50000000-0000-4000-8000-000000000002';
+const invalidRequest = '50000000-0000-4000-8000-000000000003';
+const staleSiteRequest = '50000000-0000-4000-8000-000000000004';
+const tripExpiry = new Date(Date.now() + 3 * 86_400_000).toISOString();
+await act('anon', '', true, managedPhone.app_token);
+const beforeWindow = await phonePolicyV2(managedPhone.token);
+assert.deepEqual(beforeWindow.temporary_sites, {});
+assert.ok(Date.parse(beforeWindow.server_time) > 0);
+await assert.rejects(() => requestWindow(managedPhone.token, 'http://site.example/', invalidRequest, 24), /INVALID_SITE_REQUEST/);
+await assert.rejects(() => requestWindow(managedPhone.token, 'https://site.example/', invalidRequest, 25), /INVALID_SITE_WINDOW/);
+await assert.rejects(
+  () => requestWindow(managedPhone.token, 'https://site.example/', invalidRequest, 24, tripExpiry),
+  /INVALID_SITE_WINDOW/,
+);
+await assert.rejects(
+  () => requestWindow(managedPhone.token, 'https://site.example/', invalidRequest, null, '2020-01-01T00:00:00Z'),
+  /INVALID_SITE_WINDOW/,
+);
+assert.deepEqual(await requestWindow(managedPhone.token, 'https://safe.example/', dailyRequest, 24), {});
+assert.deepEqual(await requestWindow(managedPhone.token, 'https://safe.example/', dailyRequest, 24), {});
+assert.deepEqual(await requestWindow(managedPhone.token, 'https://trip.example/', tripRequest, null, tripExpiry), {});
+assert.deepEqual(await requestWindow(managedPhone.token, 'https://new.example/', staleSiteRequest, 24), {});
+const daily = await siteRequest(managedPhone.token, dailyRequest);
+const trip = await siteRequest(managedPhone.token, tripRequest);
+const staleSite = await siteRequest(managedPhone.token, staleSiteRequest);
+assert.equal(daily.requested_hours, 24);
+assert.equal(daily.allowed_until, null);
+assert.equal(new Date(trip.requested_until).getTime(), Date.parse(tripExpiry));
+
+await act('authenticated', adminB);
+await assert.rejects(() => reviewSite(daily.id, 'approved'), /DEVICE_NOT_AVAILABLE/);
+await assert.rejects(() => setWindow(id, 'safe.example', tripExpiry), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', adminA);
+await reviewSite(daily.id, 'approved');
+await reviewSite(trip.id, 'approved');
+const withWindows = await adminPolicy(id);
+assert.equal(withWindows.sites['safe.example'], false);
+assert.ok(Date.parse(withWindows.temporary_sites['safe.example']) > Date.now() + 23.9 * 60 * 60_000);
+assert.equal(Date.parse(withWindows.temporary_sites['trip.example']), Date.parse(tripExpiry));
+assert.equal(withWindows.sites['trip.example'], undefined);
+
+await act('anon', '', true, managedPhone.app_token);
+const legacyWindowPolicy = await phonePolicy(managedPhone.token);
+assert.equal(legacyWindowPolicy.temporary_sites, undefined);
+assert.equal(legacyWindowPolicy.sites['trip.example'], undefined);
+assert.equal((await report(managedPhone.token, withWindows.revision, true)).applied_revision, 0);
+assert.equal((await phonePolicyV2(managedPhone.token)).temporary_sites['trip.example'], withWindows.temporary_sites['trip.example']);
+assert.equal((await reportV2(managedPhone.token, withWindows.revision, true)).applied_revision, withWindows.revision);
+assert.equal((await report(managedPhone.token, withWindows.revision, false)).apply_failed, false);
+assert.ok((await siteRequest(managedPhone.token, dailyRequest)).allowed_until instanceof Date);
+
+await act('authenticated', adminA);
+const manual = await setWindow(id, 'trip.example', new Date(Date.now() + 86_400_000).toISOString());
+await reviewSite(trip.id, 'revoked');
+assert.equal((await adminPolicy(id)).temporary_sites['trip.example'], manual.temporary_sites['trip.example']);
+await setRule(id, 'site', 'safe.example', false);
+assert.equal((await adminPolicy(id)).temporary_sites['safe.example'], undefined);
+assert.equal((await adminPolicy(id)).revision, manual.revision + 1);
+await assert.rejects(() => setWindow(id, 'https://malformed.example/', tripExpiry), /INVALID_SITE_WINDOW/);
+
+await db.exec('reset role');
+await db.query("update private.yd_temporary_site_rules set expires_at=now()-interval '1 second' where device_id=$1", [id]);
+await act('anon', '', true, managedPhone.app_token);
+const afterExpiry = await phonePolicyV2(managedPhone.token);
+assert.deepEqual(afterExpiry.temporary_sites, {});
+assert.deepEqual(afterExpiry.sites, { 'safe.example': false });
+assert.equal(afterExpiry.revision, manual.revision + 1);
+assert.equal((await siteRequest(managedPhone.token, tripRequest)).status, 'revoked');
+assert.equal(new Date((await siteRequest(managedPhone.token, tripRequest)).allowed_until).getTime(), Date.parse(tripExpiry));
+
+await act('authenticated', adminA);
+await reviewSite(daily.id, 'revoked');
+await reviewSite(daily.id, 'approved');
+const nextAccount = await createAccount('another-customer@example.invalid');
+const nextClaim = await assignAccount(nextAccount.id);
+await act('anon', '', true, managedPhone.app_token);
+assert.ok((await phonePolicyV2(managedPhone.token)).temporary_sites['safe.example']);
+assert.equal((await access(managedPhone.app_token)).account.id, managed.id);
+const nextPhone = await redeem(nextClaim.code);
+await assert.rejects(() => access(managedPhone.app_token), /APP_ACCESS_DENIED/);
+await act('anon', '', true, nextPhone.app_token);
+assert.deepEqual((await phonePolicyV2(nextPhone.token)).temporary_sites, {});
+assert.equal(await siteRequest(nextPhone.token, dailyRequest), undefined);
+await act('authenticated', adminA);
+await assert.rejects(() => reviewSite(staleSite.id, 'approved'), /SITE_REQUEST_NOT_AVAILABLE/);
+
 await db.close();
-console.log('Device rules: USB identity, shop and session isolation, client assignment, approved activation, replay and expiry, policy delivery and site decisions passed.');
+console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
