@@ -547,5 +547,47 @@ await assert.rejects(() => redeem(recovery.code), /INVALID_ACCOUNT_CODE/);
 await act('anon', '', true, recovered.app_token);
 await phonePolicy(recovered.token);
 
+// Android 6.0 sends the current code together with the account contacts.
+await db.exec('reset role');
+await loadMigration('20261112154317_accept_modern_codes_in_legacy_android.sql');
+const activateLegacy = (code, address = email, number = phone) => scalar(
+  'select public.yd_activate_app_code($1,$2,$3)', [code, address, number]
+);
+await act('authenticated', adminA);
+const compatibleCode = await assignAccount(recovered.account.id, recoveryDevice);
+await act('anon', '', true, recovered.app_token);
+await assert.rejects(() => activateLegacy(compatibleCode.code, 'different@example.invalid'), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => activateLegacy(compatibleCode.code, email, '+33123456780'), /INVALID_ACCOUNT_CODE/);
+assert.equal((await access(recovered.app_token)).account.id, recovered.account.id);
+const compatiblePhone = await activateLegacy(compatibleCode.code.toLowerCase(), '  ' + email.toUpperCase() + '  ', phone);
+assert.deepEqual(compatiblePhone.account, recovered.account);
+assert.equal(compatiblePhone.device_id, recoveryDevice);
+assert.match(compatiblePhone.app_token, /^[a-f0-9]{64}$/);
+assert.match(compatiblePhone.token, /^[a-f0-9]{64}$/);
+assert.ok(Date.parse(compatiblePhone.expires_at) > Date.now());
+await assert.rejects(() => activateLegacy(compatibleCode.code), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => redeem(compatibleCode.code), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => access(recovered.app_token), /APP_ACCESS_DENIED/);
+await act('anon', '', true, compatiblePhone.app_token);
+await phonePolicy(compatiblePhone.token);
+
+await act('authenticated', adminA);
+const compatibleManagedCode = await assignAccount(nextAccount.id);
+await act('anon');
+const compatibleManaged = await activateLegacy(compatibleManagedCode.code, nextAccount.email);
+assert.equal(compatibleManaged.account.id, nextAccount.id);
+assert.equal(compatibleManaged.device_id, id);
+
+// Codes issued by the older pairing endpoint still activate through the old path.
+await act('authenticated', adminA);
+const oldPairingCode = await scalar('select public.yd_create_pairing($1)', [recoveryDevice]);
+await act('anon');
+const oldPairing = await activateLegacy(oldPairingCode);
+assert.equal(oldPairing.device_id, recoveryDevice);
+assert.equal(oldPairing.account.email, email);
+await act('anon', '', true, oldPairing.app_token);
+await phonePolicy(oldPairing.token);
+await assert.rejects(() => activateLegacy(oldPairingCode), /INVALID_ACCOUNT_CODE/);
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
