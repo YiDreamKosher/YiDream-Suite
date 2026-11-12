@@ -486,6 +486,114 @@ assert.equal(await siteRequest(nextPhone.token, dailyRequest), undefined);
 await act('authenticated', adminA);
 await assert.rejects(() => reviewSite(staleSite.id, 'approved'), /SITE_REQUEST_NOT_AVAILABLE/);
 
+const chrome = 'com.android.chrome';
+await db.exec('reset role');
+const legacyChromeRevision = await scalar(
+  'select revision from private.yd_device_policy where device_id = $1', [deviceB]
+);
+await db.query(
+  'update private.yd_device_policy set apps = $1::jsonb where device_id = $2',
+  [JSON.stringify({ [chrome]: true, 'com.example.reader': true }), deviceB]
+);
+const chromeMigration = '20261112172503_managed_chrome_device_policy.sql';
+await loadMigration(chromeMigration);
+await loadMigration(chromeMigration);
+
+const setChrome = (deviceId, enabled) => scalar('select public.yd_set_managed_chrome($1,$2)', [deviceId, enabled]);
+const phonePolicyV3 = token => scalar('select public.yd_get_device_policy_v3($1)', [token]);
+const reportV3 = (token, revision, applied, state) => scalar(
+  'select public.yd_report_device_policy_v3($1,$2,$3,$4)', [token, revision, applied, state]
+);
+const unknownChrome = { enabled: false, status: null, reported_revision: null };
+
+await act('anon');
+await assert.rejects(() => setChrome(id, true), /permission denied/);
+await assert.rejects(() => phonePolicyV3(nextPhone.token), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA, false);
+await assert.rejects(() => setChrome(id, true), /APP_ACCESS_DENIED/);
+await act('authenticated', adminB);
+await assert.rejects(() => setChrome(id, true), /DEVICE_NOT_AVAILABLE/);
+const migratedChrome = await adminPolicy(deviceB);
+assert.equal(migratedChrome.revision, legacyChromeRevision + 1);
+assert.deepEqual(migratedChrome.apps, { [chrome]: false, 'com.example.reader': true });
+assert.deepEqual(migratedChrome.managed_chrome, unknownChrome);
+
+await act('authenticated', adminA);
+assert.deepEqual((await setChrome(id, false)).managed_chrome, unknownChrome);
+await assert.rejects(() => setChrome(id, true), /MANAGED_CHROME_UNAVAILABLE/);
+await assert.rejects(() => setRule(id, 'app', chrome, true), /MANAGED_CHROME_REQUIRED/);
+
+await act('anon', '', true, nextPhone.app_token);
+const chromeBefore = await phonePolicyV3(nextPhone.token);
+assert.deepEqual(chromeBefore.managed_chrome, unknownChrome);
+assert.deepEqual((await reportV2(nextPhone.token, chromeBefore.revision, true)).managed_chrome, unknownChrome);
+await assert.rejects(() => reportV3(nextPhone.token, chromeBefore.revision, true, null), /INVALID_POLICY_REPORT/);
+await assert.rejects(() => reportV3(nextPhone.token, chromeBefore.revision, true, 'active'), /INVALID_POLICY_REPORT/);
+assert.equal((await reportV3(nextPhone.token, chromeBefore.revision, true, 'unsupported')).managed_chrome.status, 'unsupported');
+await act('authenticated', adminA);
+await assert.rejects(() => setChrome(id, true), /MANAGED_CHROME_UNAVAILABLE/);
+await act('anon', '', true, nextPhone.app_token);
+const chromeReady = await reportV3(nextPhone.token, chromeBefore.revision, true, 'ready');
+assert.deepEqual(chromeReady.managed_chrome, { enabled: false, status: 'ready', reported_revision: chromeBefore.revision });
+const chromeRequestId = '60000000-0000-4000-8000-000000000001';
+await requestApp(nextPhone.token, chrome, chromeRequestId);
+const chromeRequest = (await deviceAppRequests(nextPhone.token)).find(row => row.client_request_id === chromeRequestId);
+
+await act('authenticated', adminA);
+await assert.rejects(
+  () => db.query("select public.yd_review_app_access($1,'approved','')", [chromeRequest.id]), /MANAGED_CHROME_REQUIRED/
+);
+const chromeEnabled = await setChrome(id, true);
+assert.equal(chromeEnabled.revision, chromeBefore.revision + 1);
+assert.equal(chromeEnabled.apps[chrome], false);
+assert.equal(chromeEnabled.managed_chrome.enabled, true);
+assert.equal(chromeEnabled.managed_chrome.reported_revision, chromeBefore.revision);
+assert.equal((await setChrome(id, true)).revision, chromeEnabled.revision);
+const chromeSite = await setRule(id, 'site', 'chrome.example', true);
+assert.deepEqual(chromeSite.managed_chrome, chromeEnabled.managed_chrome);
+
+await act('anon', '', true, nextPhone.app_token);
+assert.equal((await phonePolicy(nextPhone.token)).apps[chrome], false);
+assert.equal((await phonePolicyV2(nextPhone.token)).apps[chrome], false);
+assert.equal((await phonePolicyV3(nextPhone.token)).sites['chrome.example'], true);
+assert.equal((await reportV3(nextPhone.token, chromeEnabled.revision, true, 'active')).managed_chrome.status, 'ready');
+assert.equal((await report(nextPhone.token, chromeSite.revision, true)).applied_revision, chromeBefore.revision);
+const legacyChromeReport = await reportV2(nextPhone.token, chromeSite.revision, true);
+assert.equal(legacyChromeReport.applied_revision, chromeBefore.revision);
+assert.deepEqual(legacyChromeReport.managed_chrome, { ...unknownChrome, enabled: true });
+await assert.rejects(() => reportV3(nextPhone.token, chromeSite.revision, true, 'ready'), /INVALID_POLICY_REPORT/);
+const chromeFailed = await reportV3(nextPhone.token, chromeSite.revision, true, 'failed');
+assert.equal(chromeFailed.apply_failed, true);
+assert.equal(chromeFailed.applied_revision, chromeBefore.revision);
+const chromeActive = await reportV3(nextPhone.token, chromeSite.revision, true, 'active');
+assert.equal(chromeActive.applied_revision, chromeSite.revision);
+assert.equal(chromeActive.apply_failed, false);
+assert.deepEqual(chromeActive.managed_chrome, { enabled: true, status: 'active', reported_revision: chromeSite.revision });
+assert.deepEqual((await reportV2(nextPhone.token, chromeSite.revision, true)).managed_chrome, { ...unknownChrome, enabled: true });
+assert.equal((await reportV3(nextPhone.token, chromeSite.revision, true, 'active')).managed_chrome.status, 'active');
+
+await act('authenticated', adminA);
+const chromeDisabled = await setChrome(id, false);
+assert.equal(chromeDisabled.apps[chrome], false);
+assert.equal(chromeDisabled.managed_chrome.enabled, false);
+assert.equal(chromeDisabled.managed_chrome.reported_revision, chromeActive.revision);
+assert.equal((await setChrome(id, false)).revision, chromeDisabled.revision);
+await act('anon', '', true, nextPhone.app_token);
+assert.equal((await reportV2(nextPhone.token, chromeDisabled.revision, true)).applied_revision, chromeActive.revision);
+assert.equal((await reportV3(nextPhone.token, chromeDisabled.revision, true, 'ready')).applied_revision, chromeDisabled.revision);
+assert.equal((await deviceAppRequests(nextPhone.token)).find(row => row.id === chromeRequest.id).status, 'pending');
+
+await act('authenticated', adminA);
+const rotatedAccount = await createAccount('rotated-chrome@example.invalid');
+const rotateChrome = await assignAccount(rotatedAccount.id);
+await act('anon');
+const rotatedPhone = await redeem(rotateChrome.code);
+await act('anon', '', true, rotatedPhone.app_token);
+assert.deepEqual((await phonePolicyV3(rotatedPhone.token)).managed_chrome, unknownChrome);
+await assert.rejects(() => reportV3(nextPhone.token, chromeDisabled.revision, true, 'ready'), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+await assert.rejects(() => setChrome(id, true), /MANAGED_CHROME_UNAVAILABLE/);
+
 // Match the provisioning code format without using any production key material.
 await db.exec('reset role');
 await db.exec(`
@@ -521,4 +629,4 @@ assert.match(maintenance.code, /^[0-9A-F]{6}$/);
 assert.match(maintenance.date, /^\d{4}-\d{2}-\d{2}$/);
 
 await db.close();
-console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
+console.log('Device rules: USB identity, account and shop isolation, activation, managed Chrome, and permanent and timed requests passed.');

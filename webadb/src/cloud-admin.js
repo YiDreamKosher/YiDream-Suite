@@ -176,6 +176,10 @@ export function setDeviceRule(id, kind, target, allowed) {
   });
 }
 
+export function setManagedChrome(id, enabled) {
+  return deviceRpc('yd_set_managed_chrome', { target_device: id, enabled });
+}
+
 export function setTemporarySiteRule(id, target, expiresAt) {
   return deviceRpc('yd_set_temporary_site_rule', {
     target_device: id, rule_target: target, expires_at: expiresAt

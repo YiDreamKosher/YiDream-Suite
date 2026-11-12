@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeRuleTarget, normalizeSiteExpiry } from '../src/device-controls.js';
+import { managedChromeControl, normalizeRuleTarget, normalizeSiteExpiry } from '../src/device-controls.js';
 import { YiDreamAdb } from '../src/adb.js';
 
 test('site rules are canonical domains and reject ambiguous or unsafe URLs', () => {
@@ -21,6 +21,20 @@ test('temporary site expiry converts the browser time and rejects invalid window
   for (const value of ['', '2026-11-12T08:00', '2026-12-32T08:00', '2027-02-30T08:00', '2027-11-13T08:00', '2026-11-13T08:00Z']) {
     assert.equal(normalizeSiteExpiry(value, now), null, value);
   }
+});
+
+test('managed Chrome requires a compatible report and confirms the current revision only', () => {
+  const revision = 4;
+  const view = (enabled, status, reported_revision) =>
+    managedChromeControl({ revision, applied_revision: revision, managed_chrome: { enabled, status, reported_revision } });
+  assert.deepEqual(managedChromeControl({ revision }), { status: 'serviceMissing', toggle: null });
+  assert.deepEqual(view(false, null, null), { status: 'chromeUnreported', toggle: null });
+  assert.deepEqual(view(false, 'unsupported', 4), { status: 'chromeUnsupported', toggle: null });
+  assert.deepEqual(view(false, 'ready', 4), { status: 'chromeOff', toggle: true });
+  assert.deepEqual(view(true, 'active', 3), { status: 'chromePending', toggle: false });
+  assert.deepEqual(view(true, 'active', 4), { status: 'chromeActive', toggle: false });
+  assert.deepEqual(view(true, 'failed', 4), { status: 'chromeFailed', toggle: false });
+  assert.deepEqual(view(false, 'active', 3), { status: 'chromePending', toggle: true });
 });
 
 const activationCode = 'AC'.repeat(16);

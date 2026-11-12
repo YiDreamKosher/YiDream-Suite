@@ -152,6 +152,39 @@
   font-size: 16px;
 }
 
+.device-chrome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-block: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.device-chrome[hidden],
+.device-chrome button[hidden] {
+  display: none;
+}
+
+.device-chrome h4,
+.device-chrome p {
+  margin: 0;
+}
+
+.device-chrome p {
+  margin-block-start: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.device-chrome [data-chrome-status] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .device-rule {
   padding-block: 8px;
   border-bottom: 1px solid var(--line);
