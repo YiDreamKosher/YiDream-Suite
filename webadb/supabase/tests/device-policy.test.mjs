@@ -486,5 +486,66 @@ assert.equal(await siteRequest(nextPhone.token, dailyRequest), undefined);
 await act('authenticated', adminA);
 await assert.rejects(() => reviewSite(staleSite.id, 'approved'), /SITE_REQUEST_NOT_AVAILABLE/);
 
+// The USB wizard created code accounts before managed account records existed.
+const recoveryDevice = (await register(null, 'fixture-usb-recovery')).device_id;
+await act('authenticated', owner);
+await db.query('select public.set_device_configured($1,true)', [recoveryDevice]);
+await act('authenticated', adminA);
+const initialRecoveryCode = await issue(recoveryDevice);
+await act('anon');
+const recoverySession = await redeem(initialRecoveryCode.code);
+
+await db.exec('reset role');
+const recoveryMigration = '20261112151343_reissue_legacy_device_activation.sql';
+await loadMigration(recoveryMigration);
+await loadMigration(recoveryMigration);
+await act('anon');
+await assert.rejects(() => assignAccount(recoverySession.account.id, recoveryDevice), /permission denied/);
+await act('authenticated', customer);
+await assert.rejects(() => assignAccount(recoverySession.account.id, recoveryDevice), /APP_ACCESS_DENIED/);
+await act('authenticated', adminB);
+assert.ok(!(await listAccounts()).some((row) => row.id === recoverySession.account.id));
+await assert.rejects(() => assignAccount(recoverySession.account.id, recoveryDevice), /APP_ACCOUNT_NOT_AVAILABLE/);
+assert.equal((await listAccounts()).find((row) => row.id === legacyProfile.account.id).can_assign, false);
+await assert.rejects(() => assignAccount(legacyProfile.account.id, deviceB), /APP_ACCOUNT_NOT_AVAILABLE/);
+await act('authenticated', owner);
+await assert.rejects(() => assignAccount(recoverySession.account.id, deviceB), /APP_ACCOUNT_NOT_AVAILABLE/);
+
+const otherRecoveryDevice = (await register(null, 'fixture-usb-recovery-other')).device_id;
+await db.exec('reset role');
+await db.query('insert into public.yd_device_links(device_id, account_id) values ($1, $2)',
+  [otherRecoveryDevice, recoverySession.account.id]);
+await act('authenticated', owner);
+assert.ok((await listAccounts()).filter((row) => row.id === recoverySession.account.id)
+  .every((row) => row.can_assign === false));
+await assert.rejects(() => assignAccount(recoverySession.account.id, recoveryDevice), /APP_ACCOUNT_ALREADY_LINKED/);
+await db.exec('reset role');
+await db.query('delete from public.yd_device_links where device_id = $1', [otherRecoveryDevice]);
+
+await act('authenticated', adminA);
+assert.equal((await listAccounts()).find((row) => row.id === recoverySession.account.id).can_assign, true);
+const cancelledRecovery = await assignAccount(recoverySession.account.id, recoveryDevice);
+await setAccountAccess(recoverySession.account.id, false);
+assert.equal((await listAccounts()).find((row) => row.id === recoverySession.account.id).can_assign, false);
+await assert.rejects(() => assignAccount(recoverySession.account.id, recoveryDevice), /APP_ACCOUNT_NOT_AVAILABLE/);
+await setAccountAccess(recoverySession.account.id, true);
+await act('anon');
+await assert.rejects(() => redeem(cancelledRecovery.code), /INVALID_ACCOUNT_CODE/);
+
+await act('authenticated', adminA);
+const recovery = await assignAccount(recoverySession.account.id, recoveryDevice);
+assert.equal(recovery.account_id, recoverySession.account.id);
+assert.equal(recovery.device_id, recoveryDevice);
+await act('anon', '', true, recoverySession.app_token);
+assert.equal((await access(recoverySession.app_token)).account.id, recoverySession.account.id);
+await phonePolicy(recoverySession.token);
+const recovered = await redeem(recovery.code);
+assert.deepEqual(recovered.account, recoverySession.account);
+assert.equal(recovered.device_id, recoveryDevice);
+await assert.rejects(() => access(recoverySession.app_token), /APP_ACCESS_DENIED/);
+await assert.rejects(() => redeem(recovery.code), /INVALID_ACCOUNT_CODE/);
+await act('anon', '', true, recovered.app_token);
+await phonePolicy(recovered.token);
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
