@@ -20,6 +20,7 @@ export function mountUsbEnrollment(host, usb, options) {
     registration: null,
     phone: null,
     enabled: new Set(groups.map(group => group.key)),
+    profile: '',
     extra: '',
     error: '',
     progress: ''
@@ -89,6 +90,15 @@ export function mountUsbEnrollment(host, usb, options) {
     const record = await api.registerUsbDevice(state.phone, targetDevice?.id || null);
     if (!deviceId.test(record?.device_id || '')) throw new Error(copy('retry'));
     if (!active()) return;
+    if (state.profile) {
+      const policy = await api.loadDevicePolicy(record.device_id);
+      if (!active()) return;
+      const alreadyClassified = Boolean(policy?.device_profile);
+      await api.saveDeviceControls(record.device_id, state.profile,
+        alreadyClassified && policy.app_requests_enabled === true,
+        state.profile !== 'mp3' && alreadyClassified && policy.site_requests_enabled === true);
+      if (!active()) return;
+    }
     state.registration = record;
     state.step = 2;
   }
@@ -190,6 +200,11 @@ export function mountUsbEnrollment(host, usb, options) {
       <summary>${copy('help')}</summary><p>${copy('usbHelp')}</p></details>
       <button type="button" class="primary" data-connect>${copy('connectPhone')}</button>`;
     const prepareBody = `<p>${copy(recordRetry ? 'registeredPending' : 'prepareHint')}</p>
+      ${recordRetry ? '' : `<label class="setup-profile">${copy('deviceProfile')}<select data-setup-profile>
+        <option value="">${copy('unclassified')}</option>
+        <option value="mp3" ${state.profile === 'mp3' ? 'selected' : ''}>MP3</option>
+        <option value="qin" ${state.profile === 'qin' ? 'selected' : ''}>Qin</option>
+      </select></label>`}
       ${recordRetry ? '' : preparationOptions()}
       <button type="button" class="primary" data-prepare>${copy(recordRetry ? 'registerAgain' : 'preparePhone')}</button>`;
     host.classList.add('android-guided');
@@ -213,7 +228,7 @@ export function mountUsbEnrollment(host, usb, options) {
         ${connected ? `<div class="setup-record-actions">
           <button type="button" class="ghost" data-disconnect>${copy('disconnect')}</button></div>` : ''}
       </section>`;
-    if (busy) host.querySelectorAll('button, input').forEach(control => { control.disabled = true; });
+    if (busy) host.querySelectorAll('button, input, select').forEach(control => { control.disabled = true; });
     find('[data-connect]')?.addEventListener('click', () => run(connect));
     find('[data-prepare]')?.addEventListener('click', () => run(recordRetry ? saveRecord : prepare));
     find('[data-approval]')?.addEventListener('click', () => run(owner ? approve : checkApproval));
@@ -230,6 +245,7 @@ export function mountUsbEnrollment(host, usb, options) {
       });
     });
     find('[data-setup-extra]')?.addEventListener('input', event => { state.extra = event.currentTarget.value; });
+    find('[data-setup-profile]')?.addEventListener('change', event => { state.profile = event.currentTarget.value; });
     const enrollmentSlot = find('[data-setup-enrollment]');
     if (enrollmentSlot) {
       if (enrollmentHost) {

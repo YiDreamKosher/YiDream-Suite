@@ -34,10 +34,14 @@ export function normalizeSiteExpiry(localDateTime, now = Date.now()) {
 }
 
 export function mountDeviceControls(host, options) {
-  const { device, clients, language, packages, api } = options;
+  const { device, devices = [], clients, language, packages, api } = options;
   const copy = key => deviceCopy(language, key);
   const eligibleClients = clients.filter(client => client.user_id === device.user_id);
   const controlsAvailable = device.platform === 'Android' && device.configuration_status === 'configured';
+  const peers = devices.filter(candidate => candidate.platform === 'Android' &&
+    candidate.configuration_status === 'configured' && candidate.user_id === device.user_id);
+  const permissionOptions = `<option value="">${copy('keepPermission')}</option>
+    <option value="on">${copy('enablePermission')}</option><option value="off">${copy('disablePermission')}</option>`;
   host.innerHTML = `<form class="device-client-form" data-client-form>
     <label>${copy('client')}<select name="client">
       <option value="">${copy('noClient')}</option>
@@ -48,11 +52,37 @@ export function mountDeviceControls(host, options) {
     <p data-client-status role="status"></p>
   </form>
   ${controlsAvailable ? `<section class="device-rules" data-rules>
-    <div class="device-rules-heading"><h3>${copy('rules')}</h3>
+    <div class="device-rules-heading"><h3>${copy('deviceManager')}</h3>
       <button type="button" class="button" data-refresh-policy>${copy('refresh')}</button></div>
-    <p>${copy('rulesHint')}</p>
     <p data-policy-status role="status"></p>
     <p data-policy-error role="alert" hidden></p>
+    <form class="device-manager-settings" data-device-settings hidden>
+      <label>${copy('deviceProfile')}<select name="profile">
+        <option value="">${copy('unclassified')}</option><option value="mp3">MP3</option><option value="qin">Qin</option>
+      </select></label>
+      <fieldset>
+        <legend>${copy('requestPermissions')}</legend>
+        <label class="device-check"><input name="appRequests" type="checkbox"> ${copy('appRequestsEnabled')}</label>
+        <label class="device-check"><input name="siteRequests" type="checkbox"> ${copy('siteRequestsEnabled')}</label>
+        <p data-mp3-web hidden>${copy('mp3WebDisabled')}</p>
+      </fieldset>
+      <button class="button primary" type="submit">${copy('saveDeviceSettings')}</button>
+    </form>
+    ${peers.length > 1 ? `<details class="device-bulk-settings" data-bulk-settings hidden>
+      <summary>${copy('bulkRequests')}</summary>
+      <form data-bulk-requests>
+        <fieldset class="device-targets"><legend>${copy('selectDevices')}</legend>
+          ${peers.map(peer => `<label class="device-check"><input type="checkbox" name="targets"
+            value="${escape(peer.id)}"> ${escape(peer.name)}</label>`).join('')}
+        </fieldset>
+        <label>${copy('appRequestsLabel')}<select name="appRequests">${permissionOptions}</select></label>
+        <label>${copy('siteRequestsLabel')}<select name="siteRequests">${permissionOptions}</select></label>
+        <button class="button" type="submit">${copy('saveDeviceSettings')}</button>
+      </form>
+    </details>` : ''}
+    <p data-device-settings-status role="status"></p>
+    <h4>${copy('rules')}</h4>
+    <p>${copy('rulesHint')}</p>
     <div data-rule-list></div>
     <form data-rule-form class="device-rule-form" hidden>
       <label><span class="device-visually-hidden">${copy('target')}</span><select name="kind">
@@ -77,6 +107,7 @@ export function mountDeviceControls(host, options) {
     if (['PGRST202', 'PGRST205', '42P01', '42703'].includes(error?.code)) return copy('serviceMissing');
     if (/DEVICE_NOT_AVAILABLE|APP_ACCESS_DENIED|CONFIGURED_DEVICE_REQUIRED/i.test(error?.message || '')) return copy('unavailableDevice');
     if (error?.message === 'INVALID_SITE_WINDOW') return copy('invalidExpiry');
+    if (error?.message === 'MP3_WEB_DISABLED') return copy('mp3WebDisabled');
     return copy('retry');
   }
 
@@ -109,6 +140,11 @@ export function mountDeviceControls(host, options) {
   const list = rules.querySelector('[data-rule-list]');
   const form = rules.querySelector('[data-rule-form]');
   const refresh = rules.querySelector('[data-refresh-policy]');
+  const settings = rules.querySelector('[data-device-settings]');
+  const bulk = rules.querySelector('[data-bulk-settings]');
+  const settingsStatus = rules.querySelector('[data-device-settings-status]');
+  const siteOption = form.elements.kind.querySelector('[value="site"]');
+  let savedProfile = '';
   let busy = false;
 
   function setError(message) {
@@ -126,6 +162,19 @@ export function mountDeviceControls(host, options) {
     if (Number.isFinite(synchronized)) {
       status.textContent += ' · ' + copy('lastSync') + ' ' + new Date(synchronized).toLocaleString(language);
     }
+    const supportsSettings = typeof policy.app_requests_enabled === 'boolean';
+    settings.hidden = !supportsSettings;
+    if (bulk) bulk.hidden = !supportsSettings;
+    savedProfile = policy.device_profile || '';
+    settings.elements.profile.value = savedProfile;
+    settings.elements.appRequests.checked = policy.app_requests_enabled === true;
+    settings.elements.siteRequests.checked = policy.site_requests_enabled === true;
+    siteOption.disabled = siteOption.hidden = savedProfile === 'mp3';
+    if (siteOption.disabled && form.elements.kind.value === 'site') {
+      form.elements.kind.value = 'app';
+      form.elements.kind.dispatchEvent(new Event('change'));
+    }
+    updateProfileFields();
     const siteRules = new Map(Object.entries(policy.sites || {}));
     const temporary = new Map();
     for (const [target, expiresAt] of Object.entries(policy.temporary_sites || {})) {
@@ -186,6 +235,8 @@ export function mountDeviceControls(host, options) {
       busy = false;
       rules.removeAttribute('aria-busy');
       rules.querySelectorAll('button, input, select').forEach(element => { element.disabled = false; });
+      updateProfileFields();
+      updateExpiryField();
     }
     return false;
   }
@@ -203,6 +254,51 @@ export function mountDeviceControls(host, options) {
     expiryLabel.hidden = !temporary;
     expiryInput.required = temporary;
     if (!temporary) expiryInput.value = '';
+  }
+
+  function updateProfileFields() {
+    const mp3 = settings.elements.profile.value === 'mp3';
+    settings.querySelector('[data-mp3-web]').hidden = !mp3;
+    settings.elements.siteRequests.disabled = busy || mp3;
+    if (mp3) settings.elements.siteRequests.checked = false;
+  }
+
+  settings.elements.profile.onchange = () => {
+    if (!savedProfile && settings.elements.profile.value) {
+      settings.elements.appRequests.checked = settings.elements.siteRequests.checked = false;
+    }
+    updateProfileFields();
+  };
+  settings.onsubmit = async event => {
+    event.preventDefault();
+    const { profile, appRequests, siteRequests } = settings.elements;
+    settingsStatus.textContent = '';
+    if (await runPolicy(() => api.saveDeviceControls(device.id, profile.value || null,
+      appRequests.checked, siteRequests.checked))) settingsStatus.textContent = copy('settingsSaved');
+  };
+  if (bulk) {
+    const bulkForm = bulk.querySelector('form');
+    bulkForm.onsubmit = async event => {
+      event.preventDefault();
+      const data = new FormData(bulkForm);
+      const ids = data.getAll('targets');
+      const permission = name => data.get(name) ? data.get(name) === 'on' : null;
+      const app = permission('appRequests');
+      const site = permission('siteRequests');
+      settingsStatus.textContent = '';
+      if (!ids.length || (app === null && site === null)) {
+        setError(copy('invalidRequestSelection'));
+        return;
+      }
+      if (await runPolicy(async () => {
+        await api.saveRequestPermissions(ids, app, site);
+        return api.loadDevicePolicy(device.id);
+      })) {
+        bulkForm.reset();
+        bulk.open = false;
+        settingsStatus.textContent = copy('settingsSaved');
+      }
+    };
   }
 
   action.addEventListener('change', updateExpiryField);
