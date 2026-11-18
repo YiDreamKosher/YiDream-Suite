@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady, siteRequestWindow, isDeviceId } from './mdm-model.js?v=20261112-account-windows';
 import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261112';
-import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261112-device-management';
+import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261118-smooth';
 import { checkPlayCatalog } from './mdm-play-updates.js?v=20261106';
 import { inspectApk } from './mdm-apk.js?v=20261030';
 const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
@@ -12,6 +12,10 @@ const accountLanguage=['en','fr','he','yi'].includes(selectedLanguage)?selectedL
 const accountCopy=value=>accountText(value,accountLanguage);
 translateAccountPanel($('pairPanel'),accountLanguage);
 translateAccountPanel($('requestsPanel'),accountLanguage);
+translateAccountPanel($('catalogPanel'),accountLanguage);
+translateAccountPanel($('homePanel'),accountLanguage);
+translateAccountPanel(document.querySelector('.view-tools'),accountLanguage);
+translateAccountPanel(document.querySelector('.topbar'),accountLanguage);
 for(const element of document.querySelectorAll('[data-view="pair"]'))translateAccountPanel(element,accountLanguage);
 let devices=[],clients=[],requests=[],catalog=[],currentUser=null,isOwner=false,uploaded=null;
 let accountLoad=0,workspaceLoad=0,codeExpiryTimer=null;
@@ -23,7 +27,7 @@ try { embedded=window.parent!==window && window.parent.location.origin===locatio
 document.documentElement.classList.toggle('embedded',embedded);
 function resizeParent(){
   if(!embedded)return;
-  const height=Math.max(view==='catalog'?540:160,Math.ceil(document.querySelector('main').getBoundingClientRect().height)+2);
+  const height=Math.max(160,Math.ceil(document.querySelector('main').getBoundingClientRect().height)+2);
   window.parent.postMessage({type:'yidream-mdm:resize',height},location.origin);
 }
 new ResizeObserver(resizeParent).observe(document.querySelector('main'));
@@ -45,7 +49,15 @@ window.addEventListener('popstate',()=>showView(resolveView(location.search,loca
 for(const link of document.querySelectorAll('[data-view]'))link.onclick=e=>{e.preventDefault();navigate(link.dataset.view);};
 showView(view);
 function resetEditor(){form.reset();delete form.dataset.editId;delete form.dataset.ownerId;uploaded=null;$('apkFile').value='';$('editorStatus').replaceChildren();$('apkInfo').textContent='L’application, sa version et son empreinte seront vérifiées avant publication.';}
-function openEditor(){ $('ownerImports').hidden=!mayImport(currentUser,isOwner);$('baseControl').hidden=!isOwner;if(!$('catalogEditor').open)$('catalogEditor').showModal();if(embedded)window.parent.postMessage({type:'yidream-mdm:focus'},location.origin);else window.scrollTo({top:0});resizeParent(); }
+function openEditor(){
+  $('ownerImports').hidden=!mayImport(currentUser,isOwner);
+  $('baseControl').hidden=!isOwner;
+  translateAccountPanel($('catalogEditor'),accountLanguage);
+  if(!$('catalogEditor').open)$('catalogEditor').showModal();
+  if(embedded)window.parent.postMessage({type:'yidream-mdm:focus'},location.origin);
+  else window.scrollTo({top:0});
+  resizeParent();
+}
 $('addApp').onclick=()=>{resetEditor();$('editorTitle').textContent='Ajouter une application';openEditor();};
 $('closeEditor').onclick=()=>$('catalogEditor').close();
 async function ownerHeaders(){
@@ -62,7 +74,7 @@ const status=(message,error=false,showMigration=false)=>{
 };
 const button=(label,kind='secondary')=>{const b=document.createElement('button');b.type='button';b.className='button '+kind;b.textContent=accountCopy(label);return b;};
 const text=(tag,value,className)=>{const e=document.createElement(tag);e.textContent=accountCopy(value);if(className)e.className=className;return e;};
-function empty(parent,title,description){const box=document.createElement('div');box.className='empty';box.append(text('div','◎','empty-symbol'),text('strong',title),text('p',description));parent.append(box);}
+function empty(parent,title,description){const box=document.createElement('div');box.className='empty';box.append(text('strong',title),text('p',description));parent.append(box);return box;}
 function isCatalogSchemaError(e){return e?.code==='PGRST204'||(e?.message||'').includes("'is_base' column of 'yd_catalog'");}
 function errorMessage(error) {
   if (isCatalogSchemaError(error)) return 'La base YiDream doit être mise à jour avant d’utiliser la boutique.';
@@ -145,14 +157,28 @@ function renderRequests() {
     deviceLabel(devices.find(device => device.id === request.device_id) || { name: 'Appareil' }, clients),
     $('requestSearch').value, $('requestFilter').value
   ));
-  if (!filtered.length) empty(container, 'Aucune demande à afficher', 'Les demandes de vos utilisateurs apparaîtront ici.');
+  $('requestTotal').textContent = new Intl.NumberFormat(accountLanguage).format(filtered.length);
+  if (!filtered.length) {
+    const pending = $('requestFilter').value === 'pending' && !$('requestSearch').value.trim();
+    const box = empty(container, pending ? 'Tout est traité' : 'Aucune demande correspondante',
+      pending ? 'Les prochaines demandes apparaîtront ici.' : 'Essayez un autre mot ou un autre statut.');
+    if (requests.length) {
+      const all = button('Voir toutes les demandes', 'ghost');
+      all.onclick = () => {
+        $('requestSearch').value = '';
+        $('requestFilter').value = 'all';
+        renderRequests();
+      };
+      box.append(all);
+    }
+  }
   for (const request of filtered) {
     const row = document.createElement('article');
     row.className = 'row';
     const heading = document.createElement('div');
     heading.className = 'request-heading';
     const isApp = Boolean(request.package_name);
-    let name = request.package_name;
+    let name = catalog.find(app => app.package_name === request.package_name)?.name || request.package_name;
     if (!isApp) {
       try { name = new URL(request.site_url).hostname; }
       catch { name = request.site_url; }
@@ -166,7 +192,7 @@ function renderRequests() {
     const device = devices.find(device => device.id === request.device_id);
     row.append(heading, text('small', deviceLabel(device || { name: 'Appareil' }, clients) + ' · ' +
       new Date(request.created_at).toLocaleString(accountLanguage)));
-    row.append(text('p', isApp ? 'Demande d’accès à une application' : wantsAllow ? 'Demande d’autorisation' : 'Demande de blocage'));
+    row.append(text('p', isApp ? 'Application' : wantsAllow ? 'Site web' : 'Demande de blocage', 'request-kind'));
     if (timing) {
       const label = { approved: 'Fin de l’autorisation', expired: 'Date de fin passée', requested: 'Date de fin souhaitée' }[timing.kind];
       const note = timing.kind === 'day'
@@ -174,8 +200,8 @@ function renderRequests() {
         : accountCopy(label) + ' · ' + new Date(timing.until).toLocaleString(accountLanguage);
       row.append(text('p', note, 'request-timing'));
     }
-    if (request.reason) row.append(text('p', request.reason));
-    if (request.admin_note) row.append(text('p', request.admin_note));
+    if (request.reason) row.append(text('p', request.reason, 'request-reason'));
+    if (request.admin_note) row.append(text('p', request.admin_note, 'request-reply'));
     const actions = [];
     if (request.status === 'pending') {
       const approval = isApp ? 'Autoriser l’application' : wantsAllow ? 'Autoriser le site' : 'Bloquer le site';
@@ -192,10 +218,14 @@ function renderRequests() {
       note.maxLength = 2000;
       note.rows = 2;
       note.setAttribute('aria-label', note.placeholder);
-      row.append(note);
+      const options = document.createElement('details');
+      options.className = 'request-options';
+      options.append(text('summary', 'Réponse et autres appareils'));
+      options.append(note);
       const scope = wantsAllow && actions.some(([decision]) => decision === 'approved')
         ? requestScope(device) : null;
-      if (scope) row.append(scope.control);
+      if (scope) options.append(scope.control);
+      row.append(options);
       const actionBar = document.createElement('div');
       actionBar.className = 'row-actions';
       for (const [decision, label, kind] of actions) {
@@ -218,12 +248,17 @@ function renderRequests() {
     container.append(row);
   }
 }
-function fillApp(app){form.elements.name.value=app.name||'';form.elements.package_name.value=app.package_name||'';form.elements.description.value=app.description||'';for(const key of['source_url','version_name','version_code','apk_url','sha256'])form.elements[key].value=app[key]||'';form.elements.is_base.checked=!!app.is_base;form.dataset.editId=app.id||'';form.dataset.ownerId=app.owner_id||currentUser.id;uploaded=null;$('apkFile').value='';$('apkInfo').textContent='Importez une nouvelle APK pour publier une mise à jour.';$('editorTitle').textContent='Publier une version · '+app.name;openEditor();}
+function fillApp(app){form.elements.name.value=app.name||'';form.elements.package_name.value=app.package_name||'';form.elements.description.value=app.description||'';for(const key of['source_url','version_name','version_code','apk_url','sha256'])form.elements[key].value=app[key]||'';form.elements.is_base.checked=!!app.is_base;form.dataset.editId=app.id||'';form.dataset.ownerId=app.owner_id||currentUser.id;uploaded=null;$('apkFile').value='';$('apkInfo').textContent='Importez une nouvelle APK pour publier une mise à jour.';$('editorTitle').textContent=accountCopy('Publier une version')+' · '+app.name;openEditor();}
 function renderCatalog(){
  const container=$('catalog');container.replaceChildren();
  const query=$('catalogSearch').value.trim().toLocaleLowerCase('fr');
  const visible=catalog.filter(app=>[app.name,app.package_name,app.description].some(value=>(value||'').toLocaleLowerCase('fr').includes(query)));
- if(!visible.length)empty(container,catalog.length?'Aucun résultat':'Votre boutique prend forme',catalog.length?'Essayez un autre nom d’application.':'Ajoutez une première application pour vos appareils.');
+ if(!visible.length){
+  const box=empty(container,catalog.length?'Aucun résultat':'Aucune application publiée',catalog.length?'Essayez un autre nom d’application.':'Ajoutez une application pour préparer sa publication.');
+  const action=button(catalog.length?'Effacer la recherche':'Ajouter une application','ghost');
+  action.onclick=()=>{if(catalog.length){$('catalogSearch').value='';renderCatalog();}else $('addApp').click();};
+  box.append(action);
+ }
  for(const app of visible){
   const row=document.createElement('article');row.className='catalog-row';
   const identity=document.createElement('div');identity.className='app-identity';
@@ -235,8 +270,10 @@ function renderCatalog(){
   detail.append(text('p',app.description||'Application Android'),text('small',audience));
   const release=document.createElement('div');release.className='app-release';release.append(text('small',app.version_name?'Version '+app.version_name:'APK à préparer'),text('span',!app.enabled?'Masquée':releaseReady(app)?'Disponible':'À compléter','pill '+(app.enabled&&releaseReady(app)?'approved':'pending')));
   const actions=document.createElement('div');actions.className='row-actions';
-  if(isOwner||app.owner_id===currentUser.id){const edit=button('Publier une version');edit.onclick=()=>fillApp(app);const toggle=button(app.enabled?'Masquer':'Afficher','ghost');toggle.onclick=()=>task(toggle,async()=>{check(await db.from('yd_catalog').update({enabled:!app.enabled}).eq('id',app.id));await load();});actions.append(edit,toggle);}
-  if(app.source_url){try{const url=new URL(app.source_url);if(url.protocol==='https:'){const link=document.createElement('a');link.className='button ghost';link.textContent='Fiche officielle ↗';link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';actions.append(link);}}catch(_){} }
+  const more=document.createElement('details');more.className='row-more';more.append(text('summary','Autres actions'));
+  if(isOwner||app.owner_id===currentUser.id){const edit=button(releaseReady(app)?'Mettre à jour':'Préparer l’application');edit.onclick=()=>fillApp(app);const toggle=button(app.enabled?'Masquer':'Afficher','ghost');toggle.onclick=()=>task(toggle,async()=>{check(await db.from('yd_catalog').update({enabled:!app.enabled}).eq('id',app.id));await load();});actions.append(edit);more.append(toggle);}
+  if(app.source_url){try{const url=new URL(app.source_url);if(url.protocol==='https:'){const link=document.createElement('a');link.className='button ghost';link.textContent=accountCopy('Fiche officielle ↗');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';more.append(link);}}catch(_){} }
+  if(more.children.length>1)actions.append(more);
   row.append(identity,detail,release,actions);container.append(row);
  }
  resizeParent();
@@ -298,12 +335,17 @@ async function load() {
   isOwner = owner;
   $('ownerImports').hidden = !isOwner;
 
-  $('configuredDevices').replaceChildren(...configuredDevices().map(device => {
+  const selectedDevice = $('devices').value;
+  const chooseDevice = document.createElement('option');
+  chooseDevice.value = '';
+  chooseDevice.textContent = accountCopy('Choisir un téléphone');
+  $('devices').replaceChildren(chooseDevice, ...configuredDevices().map(device => {
     const option = document.createElement('option');
     option.value = device.id;
-    option.label = deviceLabel(device, clients);
+    option.textContent = deviceLabel(device, clients);
     return option;
   }));
+  if (configuredDevices().some(device => device.id === selectedDevice)) $('devices').value = selectedDevice;
 
   const pending = requests.filter(request => request.status === 'pending').length;
   $('pendingCount').textContent = pending;
@@ -311,8 +353,7 @@ async function load() {
   $('navPending').hidden = !pending;
   $('appCount').textContent = catalog.filter(app => app.enabled && releaseReady(app)).length;
   $('deviceCount').textContent = devices.length;
-  $('requestTotal').textContent = new Intl.NumberFormat(accountLanguage).format(requests.length);
-  $('catalogTotal').textContent = catalog.length + ' applications';
+  $('catalogTotal').textContent = new Intl.NumberFormat(accountLanguage).format(catalog.length);
   $('account').textContent = user.email;
   $('baseControl').hidden = !isOwner;
 
@@ -335,11 +376,11 @@ function openAccountLink(account) {
   row?.after(linkForm);
   $('pairAccount').textContent = account.email;
   $('devices').value = account.device_id || account.pending_device_id || '';
-  $('devices').readOnly = Boolean(account.device_id);
+  $('devices').disabled = Boolean(account.device_id);
   $('replaceAccountHint').hidden = Boolean(account.device_id);
   row?.querySelector('[data-link-account]')?.setAttribute('aria-expanded', 'true');
   linkForm.hidden = false;
-  $('devices').focus();
+  (account.device_id ? $('pair') : $('devices')).focus();
   resizeParent();
 }
 
@@ -351,6 +392,7 @@ function closeAccountLink() {
   linkAccount = null;
   $('pairForm').hidden = true;
   $('devices').value = '';
+  $('devices').disabled = false;
   $('pairAccount').textContent = '';
   clearAccountCode();
   return button;
@@ -363,6 +405,7 @@ function resetAppAccounts() {
   $('appAccounts').replaceChildren();
   $('createAccountForm').reset();
   $('createAccountForm').hidden = true;
+  $('newAccount').hidden = true;
 }
 
 function renderAppAccount(account) {
@@ -419,7 +462,10 @@ function renderAppAccount(account) {
       await loadAppAccounts();
       status('Accès au compte mis à jour.');
     });
-    actions.append(toggle);
+    const more = document.createElement('details');
+    more.className = 'row-more';
+    more.append(text('summary', 'Autres actions'), toggle);
+    actions.append(more);
     row.append(actions);
   }
   return row;
@@ -443,14 +489,19 @@ async function loadAppAccounts() {
       nodes[activeRow].after(linkForm);
       focused?.focus({ preventScroll: true });
     } else list.after(linkForm);
+    $('newAccount').hidden = false;
     $('createAccountForm').hidden = false;
-    if (!rows.length) empty(list, 'Aucun compte', 'Vous pouvez créer un compte avant de configurer un téléphone.');
+    if (!rows.length) {
+      empty(list, 'Aucun compte', 'Vous pouvez créer un compte avant de configurer un téléphone.');
+      $('newAccount').open = true;
+    }
     message.textContent = accountCopy(configuredDevices().length
       ? ''
       : 'Aucun appareil Android configuré. Vous pouvez quand même créer des comptes.');
   } catch (error) {
     if (generation !== accountLoad) return;
     closeAccountLink();
+    $('newAccount').hidden = true;
     list.after($('pairForm'));
     list.replaceChildren();
     message.textContent = accountCopy(['PGRST202', 'PGRST205', '42P01', '42703'].includes(error.code)
@@ -529,6 +580,7 @@ $('createAccountForm').onsubmit = event => {
     }));
     if (currentUser?.id !== userId || view !== 'pair') return;
     event.target.reset();
+    $('newAccount').open = false;
     await loadAppAccounts();
     status('Compte créé. Vous pourrez lui associer un appareil à tout moment.');
   });
