@@ -1,6 +1,10 @@
 const locales = ['en', 'fr', 'he', 'yi'];
 
 const copy = {
+  rulesSection: ['Apps and websites', 'Applications et sites', 'אפליקציות ואתרים', 'אַפּס און וועבזײַטן'],
+  clientSection: ['Assigned client', 'Client associé', 'לקוח משויך', 'צוגעטיילטער קליענט'],
+  bulkSection: ['Other devices', 'Autres appareils', 'מכשירים אחרים', 'אַנדערע דיווייסעס'],
+  addRuleSection: ['Add a rule', 'Ajouter une règle', 'הוספת כלל', 'צולייגן אַ כּלל'],
   maintenanceTitle: ['Maintenance code', 'Code de maintenance', 'קוד תחזוקה', 'וישאַלט־קאָד'],
   maintenanceHint: [
     'Use this six-character code in Settings → Filter → Remove filter on the phone.',

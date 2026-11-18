@@ -4,10 +4,12 @@ import * as cloud from './cloud-admin.js';
 import { renderAndroidWizard, disposeAndroidWizard, disconnectAndroidWorkspace, knownAppPackages } from './ui-android.js';
 import { mountDeviceControls } from './device-controls.js';
 import { mountDeviceEnrollment } from './device-enrollment.js';
+import { suiteTranslations } from './suite-copy.js';
 import { deviceCopy } from './device-control-copy.js';
 import { mountMaintenanceCode } from './maintenance-code.js';
 import './device-controls.css';
 import './admin-simple.css';
+import './suite-refinement.css';
 import { runGate } from './gate.js';
 import logoUrl from '../assets/yidream-logo.png';
 import adminLogoUrl from '../assets/icons/yidream-admin.png';
@@ -64,12 +66,22 @@ const simpleTranslations={
  yi:{'Applications':'אַפּס','Configurer un téléphone':'איינשטעלן אַ טעלעפֿאָן','Gestion':'פאַרוואַלטונג','Gestion propriétaire':'באַזיצער פאַרוואַלטונג','Votre espace, simplement.':'אייער פּלאַץ, פּשוט.','Préparez un téléphone ou retrouvez vos appareils.':'גרייט צו אַ טעלעפֿאָן אָדער געפֿינט אייער דיווייסעס.'}
 };
 for(const language of ['en','he','yi'])Object.assign(adminTranslations[language],simpleTranslations[language]);
-function translateAdminText(root=document){const dict=adminTranslations[adminLanguage];if(!dict)return;const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);for(const node of nodes){const raw=node.nodeValue,trimmed=raw.trim();if(dict[trimmed])node.nodeValue=raw.replace(trimmed,dict[trimmed])}}
+for(const language of ['en','he','yi'])Object.assign(adminTranslations[language],suiteTranslations[language]);
+function translateAdminText(root=document) {
+ const dict=adminTranslations[adminLanguage];
+ if(!dict)return;
+ const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+ const nodes=[];
+ while(walker.nextNode())nodes.push(walker.currentNode);
+ for(const node of nodes){const raw=node.nodeValue,trimmed=raw.trim();if(dict[trimmed])node.nodeValue=raw.replace(trimmed,dict[trimmed]);}
+ const elements=[...(root.nodeType===Node.ELEMENT_NODE?[root]:[]),...root.querySelectorAll?.('[aria-label],[placeholder],[title]')||[]];
+ for(const element of elements)for(const attribute of ['aria-label','placeholder','title']){const value=element.getAttribute(attribute);if(dict[value])element.setAttribute(attribute,dict[value]);}
+}
 document.documentElement.lang=adminLanguage;document.documentElement.dir=['he','yi'].includes(adminLanguage)?'rtl':'ltr';translateAdminText();new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===Node.ELEMENT_NODE)translateAdminText(node);else if(node.nodeType===Node.TEXT_NODE)translateAdminText(node.parentElement||document)}).observe(document.getElementById('app')||document.body,{childList:true,subtree:true});
 
 const withTimeout=(promise,label='connexion',ms=15000)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(`Le chargement de ${label} prend trop de temps. Vérifiez votre connexion puis réessayez.`)),ms))]);
 document.addEventListener('click',e=>{if(e.target.closest('.account-box'))return;const m=$('#accountMenu'),b=$('#accountToggle');if(m)m.classList.add('hidden');if(b)b.setAttribute('aria-expanded','false')});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){const m=$('#accountMenu'),b=$('#accountToggle');if(m)m.classList.add('hidden');if(b)b.setAttribute('aria-expanded','false')}}); let state={session:null,data:null,page:'dashboard',deviceQuery:'',clientQuery:'',tab:'Tous',platformLabel:'',platformMenus:{},platformRole:null,ownerPage:'dashboard',ownerData:null,androidSection:'Connect',selectedDeviceId:null}; const names={dashboard:'Accueil',devices:'Appareils',clients:'Clients',activity:'Journal','mdm-catalog':MDM_TITLES.catalog,'mdm-requests':MDM_TITLES.requests,'mdm-pair':MDM_TITLES.pair};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){const m=$('#accountMenu'),b=$('#accountToggle');if(m)m.classList.add('hidden');if(b)b.setAttribute('aria-expanded','false')}}); let state={session:null,data:null,page:'dashboard',deviceQuery:'',deviceReadiness:'',clientQuery:'',tab:'Tous',platformLabel:'',platformMenus:{},platformRole:null,ownerPage:'dashboard',ownerData:null,androidSection:'Connect',selectedDeviceId:null}; const names={dashboard:'Accueil',devices:'Appareils',clients:'Clients',activity:'Journal','mdm-catalog':MDM_TITLES.catalog,'mdm-requests':MDM_TITLES.requests,'mdm-pair':MDM_TITLES.pair};
 // Integrated MDM views keep the Classic shell, account controls and existing management pages.
 const initialMdmView=mdmViewFromHash(location.hash);
 if(initialMdmView){state.page=mdmPage(initialMdmView);state.ownerPage=state.page;}
@@ -83,6 +95,7 @@ function navigateMdm(view,{updateHash=true}={}){
 }
 function clearMdmHash(){if(mdmViewFromHash(location.hash))history.replaceState(null,'',location.pathname+location.search);}
 function bindMdmNavigation(){document.querySelectorAll('button[data-mdm-view]').forEach(b=>b.onclick=()=>navigateMdm(b.dataset.mdmView));}
+
 window.addEventListener('hashchange',()=>{const view=mdmViewFromHash(location.hash);if(view||!location.hash)navigateMdm(view||'home',{updateHash:false});});
 window.addEventListener('message',event=>{
  const frame=$('#classicMdmFrame'),message=trustedMdmMessage(event,frame,location.origin);if(!message)return;
@@ -142,11 +155,101 @@ async function openDeviceRecord(id) {
 }
 
 function portalHomeHref(){return 'https://yidreamkosher.github.io/YiDream/'}
-function appNavigation(){
- const page=state.platformRole==='owner'?state.ownerPage:state.page;
- return `<nav class="suite-main-nav" aria-label="Navigation principale"><button type="button" data-mdm-view="catalog" ${page==='mdm-catalog'?'aria-current="page"':''}><span>▦</span>Applications</button><button type="button" data-mdm-view="requests" ${page==='mdm-requests'?'aria-current="page"':''}><span>◎</span>Demandes d’accès</button><button type="button" data-open-android ${page==='android'?'aria-current="page"':''}><span>▯</span>Configurer un téléphone</button></nav>`;
+function bindNavigationMenu() {
+ const skip=$('.suite-skip');
+ if(skip)skip.onclick=event=>{event.preventDefault();const content=$('#content');content.tabIndex=-1;content.focus({preventScroll:true});content.scrollIntoView({block:'start'});};
+ document.querySelectorAll('[data-refresh-workspace]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{await(state.platformRole==='owner'?reloadOwner():refresh());}catch(error){notify(errorText(error));}finally{button.disabled=false;}});
+ const toggle = $('[data-toggle-navigation]');
+ if (!toggle) return;
+ toggle.onclick = () => {
+  const side = toggle.closest('.side');
+  const open = toggle.getAttribute('aria-expanded') !== 'true';
+  toggle.setAttribute('aria-expanded', String(open));
+  side.toggleAttribute('data-menu-open', open);
+ };
 }
-function welcomeMarkup(){return `<section class="suite-welcome"><div><span class="suite-eyebrow">YiDream Suite</span><h1>Votre espace, simplement.</h1><p>Préparez un téléphone ou retrouvez vos appareils.</p></div><button type="button" class="button primary" data-open-android>Configurer un téléphone <span aria-hidden="true">→</span></button></section>`;}
+function appNavigation() {
+ const owner = state.platformRole === 'owner';
+ const page = owner ? state.ownerPage : state.page;
+ const attribute = owner ? 'data-owner-page' : 'data-page';
+ const item = (key, title, icon) => `<button type="button" ${attribute}="${key}"
+   ${page === key ? 'aria-current="page" class="active"' : ''}><span aria-hidden="true">${icon}</span>${title}</button>`;
+ return `<nav id="suiteNavigation" class="suite-main-nav" aria-label="Navigation principale">
+   ${item('dashboard', 'Accueil', '⌂')}
+   ${item('devices', 'Appareils', '▯')}
+   <button type="button" data-mdm-view="requests" ${page === 'mdm-requests' ? 'aria-current="page"' : ''}><span aria-hidden="true">◎</span>Demandes d’accès</button>
+   <button type="button" data-mdm-view="catalog" ${page === 'mdm-catalog' ? 'aria-current="page"' : ''}><span aria-hidden="true">▦</span>Applications</button>
+   ${item('clients', 'Clients', '♧')}
+   <button type="button" data-mdm-view="pair" ${page === 'mdm-pair' ? 'aria-current="page"' : ''}><span aria-hidden="true">◉</span>Comptes et appareils</button>
+   <button type="button" data-open-android class="suite-setup-link" ${page === 'android' ? 'aria-current="page"' : ''}><span aria-hidden="true">＋</span>Configurer un téléphone</button>
+ </nav>`;
+}
+
+function dashboardMarkup(data) {
+ const configured = data.devices.filter(device => device.configuration_status === 'configured').length;
+ const pending = data.devices.filter(device => device.configuration_status === 'needs_configuration').length;
+ const recent = data.devices.slice(0, 5);
+ return `${head('Accueil', 'Vos appareils, vos demandes et les prochaines actions.',
+   '<div class="actions"><button type="button" class="button" data-refresh-workspace>Actualiser</button><button type="button" class="button primary" data-open-android>＋ Configurer un téléphone</button></div>')}
+   <div class="suite-metrics">
+     <button type="button" data-dashboard-devices="Tous"><span>Appareils enregistrés</span><strong>${data.devices.length}</strong><small>Voir le parc <span aria-hidden="true">↗</span></small></button>
+     <button type="button" data-dashboard-devices="pending"><span>À préparer</span><strong>${pending}</strong><small><span><span>${configured}</span> <span>approuvés</span></span></small></button>
+     <button type="button" data-dashboard-clients><span>Clients</span><strong>${data.clients.length}</strong><small>Voir les associations <span aria-hidden="true">↗</span></small></button>
+   </div>
+   <div class="suite-dashboard-grid">
+     <section class="panel suite-recent"><div class="panel-head"><h2>Vos appareils</h2><button type="button" class="link" data-dashboard-devices="Tous">Tout voir →</button></div>
+       ${recent.length ? recent.map(device => deviceRow(device, data)).join('') : `<div class="suite-empty">
+         <strong>Votre premier appareil commence ici.</strong><p>Configurez un téléphone Android, puis retrouvez son suivi dans cette liste.</p>
+         <button type="button" class="button" data-open-android>Configurer un téléphone</button></div>`}
+     </section>
+     <section class="panel suite-work">
+       <h2>À portée de main</h2>
+       <button type="button" class="suite-task" data-mdm-view="requests"><span class="suite-task-icon" aria-hidden="true">◎</span><span><b>Demandes d’accès</b><small>Autoriser ou refuser un site ou une application.</small></span><span aria-hidden="true">→</span></button>
+       <button type="button" class="suite-task" data-mdm-view="catalog"><span class="suite-task-icon" aria-hidden="true">▦</span><span><b>Applications</b><small>Préparer et publier les applications autorisées.</small></span><span aria-hidden="true">→</span></button>
+       <button type="button" class="suite-task" data-mdm-view="pair"><span class="suite-task-icon" aria-hidden="true">◉</span><span><b>Comptes et appareils</b><small>Créer un compte et le relier à un téléphone.</small></span><span aria-hidden="true">→</span></button>
+     </section>
+   </div>`;
+}
+
+function bindDashboard() {
+ document.querySelectorAll('[data-dashboard-devices]').forEach(button => {
+  button.onclick = () => {
+   clearMdmHash();
+   state.selectedDeviceId = null;
+   state.deviceQuery = '';
+   state.tab = 'Tous';
+   state.deviceReadiness = button.dataset.dashboardDevices === 'pending' ? 'pending' : '';
+   if (state.platformRole === 'owner') {
+    state.ownerPage = 'devices';
+    renderOwnerPortal();
+   } else {
+    state.page = 'devices';
+    render();
+   }
+  };
+ });
+ document.querySelectorAll('[data-dashboard-clients]').forEach(button => {
+  button.onclick = () => {
+   clearMdmHash();
+   if (state.platformRole === 'owner') { state.ownerPage = 'clients'; renderOwnerPortal(); }
+   else { state.page = 'clients'; render(); }
+  };
+ });
+ document.querySelectorAll('[data-device-detail]').forEach(button => {
+  button.onclick = () => {
+   state.selectedDeviceId = button.dataset.deviceDetail;
+   state.deviceReadiness = '';
+   clearMdmHash();
+   if (state.platformRole === 'owner') { state.ownerPage = 'devices'; renderOwnerPortal(); }
+   else { state.page = 'devices'; render(); }
+  };
+ });
+ document.querySelectorAll('[data-open-android]').forEach(button => {
+  button.onclick = () => openAndroidConfigurator();
+ });
+ bindMdmNavigation();
+ bindNavigationMenu();
+}
 
 const appNavigationStyle=document.createElement('style');appNavigationStyle.textContent=`.app-links{display:grid;gap:14px;padding:0 4px 16px}.app-link-group{display:grid;gap:3px}.app-group-label{padding:0 9px 5px;color:#8793a7;font-size:9px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.app-link{position:relative;width:100%;min-height:40px;display:flex;align-items:center;gap:10px;padding:8px 9px;border:1px solid transparent;border-radius:10px;background:transparent;color:#536178;text-decoration:none;text-align:left;font:650 11px/1.25 Inter,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;cursor:pointer;transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease}.app-link:hover,.app-link.active,.app-link[aria-current="page"]{background:#f1edff;border-color:#e6defd;color:#6348c5}.app-link:hover{transform:translateX(2px)}.app-link.active,.app-link[aria-current="page"]{font-weight:800}.app-link-icon{width:24px;height:24px;display:grid;place-items:center;flex:none;border-radius:8px;background:#f4f6fa;color:#64748b;font-size:14px}.app-link:hover .app-link-icon,.app-link.active .app-link-icon,.app-link[aria-current="page"] .app-link-icon{background:#fff;color:#7257d6}.app-link-icon img{width:100%;height:100%;object-fit:contain}.app-link small{margin-left:auto;padding:3px 6px;border-radius:6px;background:#fff4dc;color:#98712e;font-size:8px;font-weight:800}.app-link.coming{opacity:.76;cursor:not-allowed}.app-link-arrow{margin-left:auto;color:#98a2b4;font-size:15px}.app-link-apple{position:relative;font-size:0!important;width:15px;height:16px;margin:0 4px;border-radius:48% 48% 44% 44%;background:#172846!important}.app-link-apple:before{content:"";position:absolute;right:-3px;top:-2px;width:6px;height:4px;border-radius:6px 0;background:#172846;transform:rotate(-38deg)}.app-link:focus-visible{outline:3px solid #9e8bea;outline-offset:2px}`;document.head.append(appNavigationStyle);
 function authScreen(mode='login',error=''){
@@ -202,13 +305,14 @@ function pendingScreen(application){
 function shell(){
  const d=state.data;
  const initials=(d.profile.shop_name||'Y').trim().slice(0,2).toLocaleUpperCase('fr-FR');
- app.innerHTML=`<div class="shell"><aside class="side"><div class="brand"><img src="${adminLogoUrl}" alt="Logo YiDream Admin">YiDream <span class="suite-word">Suite</span></div><div class="workspace">Espace de gestion</div><nav class="nav"><button data-page="dashboard"><span class="ico">⌂</span>Accueil</button><button data-page="devices"><span class="ico">▣</span>Appareils</button></nav>${appNavigation()}<details class="suite-secondary" ${['clients','activity','mdm-pair'].includes(state.page)?'open':''}><summary>Gestion</summary><nav class="nav"><button data-page="clients">Clients</button><button data-mdm-view="pair">Comptes et appareils</button><button data-page="activity">Journal d’activité</button></nav></details><div class="side-bottom"><div class="account-box"><button id="accountToggle" class="account-trigger" aria-expanded="false" aria-controls="accountMenu"><span class="avatar">${esc(initials)}</span><span class="account-copy"><b>${esc(d.profile.shop_name)}</b><small>${esc(state.session.user.email)}</small></span><span class="account-caret">⌃</span></button><div id="accountMenu" class="account-menu hidden"><div class="account-menu-head"><small>COMPTE REVENDEUR</small><b>${esc(d.profile.shop_name)}</b><span>${esc(state.session.user.email)}</span></div><div class="account-menu-rule"></div><button id="accountSettings" class="logout-button" style="border-color:var(--line);background:#fff;color:var(--ink);margin-bottom:7px">Paramètres du compte</button><button id="logout" class="logout-button">Se déconnecter</button></div></div></div></aside><main class="main"><header class="topbar"><span class="crumb">YiDream Suite / <b id="crumb">${state.platformLabel||names[state.page]}</b></span><div class="top-actions"><span class="role">ESPACE ADMINISTRATEUR</span><span class="hebrew-decor" dir="rtl" lang="he" aria-hidden="true">בס״ד</span></div></header><section class="content" id="content"></section></main></div>`;
- document.querySelectorAll('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===state.page&&!state.platformLabel);b.onclick=()=>{if(b.dataset.page==='dashboard'){navigateMdm('home');return}clearMdmHash();state.page=b.dataset.page;state.platformLabel='';state.tab='Tous';render()}});
+ app.innerHTML=`<div class="shell"><a class="suite-skip" href="#content">Aller au contenu</a><aside class="side"><button type="button" class="suite-menu-toggle" data-toggle-navigation aria-expanded="false" aria-controls="suiteNavigation">Menu</button><div class="brand"><img src="${adminLogoUrl}" alt="Logo YiDream Admin">YiDream <span class="suite-word">Suite</span></div><div class="workspace">Espace de gestion</div>${appNavigation()}<details class="suite-secondary" ${state.page==='activity'?'open':''}><summary>Historique</summary><nav class="nav"><button data-page="activity">Journal d’activité</button></nav></details><div class="side-bottom"><div class="account-box"><button id="accountToggle" class="account-trigger" aria-expanded="false" aria-controls="accountMenu"><span class="avatar">${esc(initials)}</span><span class="account-copy"><b>${esc(d.profile.shop_name)}</b><small>${esc(state.session.user.email)}</small></span><span class="account-caret">⌃</span></button><div id="accountMenu" class="account-menu hidden"><div class="account-menu-head"><small>COMPTE REVENDEUR</small><b>${esc(d.profile.shop_name)}</b><span>${esc(state.session.user.email)}</span></div><div class="account-menu-rule"></div><button id="accountSettings" class="logout-button" style="border-color:var(--line);background:#fff;color:var(--ink);margin-bottom:7px">Paramètres du compte</button><button id="logout" class="logout-button">Se déconnecter</button></div></div></div></aside><main class="main"><header class="topbar"><span class="crumb">YiDream Suite / <b id="crumb">${state.platformLabel||names[state.page]}</b></span><div class="top-actions"><span class="role">ESPACE ADMINISTRATEUR</span><span class="hebrew-decor" dir="rtl" lang="he" aria-hidden="true">בס״ד</span></div></header><section class="content" id="content"></section></main></div>`;
+ document.querySelectorAll('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===state.page&&!state.platformLabel);b.onclick=()=>{if(b.dataset.page==='dashboard'){navigateMdm('home');return}clearMdmHash();state.page=b.dataset.page;state.platformLabel='';state.tab='Tous';state.selectedDeviceId=null;state.deviceReadiness='';render()}});
  $('#accountToggle').onclick=()=>{const b=$('#accountToggle'),m=$('#accountMenu'),open=m.classList.contains('hidden');m.classList.toggle('hidden',!open);b.setAttribute('aria-expanded',String(open))};
  $('#accountSettings').onclick=()=>{const p=state.data.profile;const overlay=document.createElement('div');overlay.id='accountSettingsDialog';overlay.style='position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:18px;background:#10244866';overlay.innerHTML='<section style="width:min(460px,100%);padding:24px;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:0 20px 60px #10244830"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2 style="margin:0;font-size:20px">Paramètres du compte</h2><button type="button" id="settingsClose" class="button" aria-label="Fermer">×</button></div><p style="color:var(--muted);margin:8px 0 18px">Modifiez les informations de votre compte revendeur.</p><div class="field"><label for="settingsShop">Nom de la boutique ou organisation</label><input id="settingsShop" value="'+esc(p.shop_name)+'"></div><div class="field" style="margin-top:14px"><label for="settingsEmail">Adresse e-mail</label><input id="settingsEmail" value="'+esc(state.session.user.email)+'" disabled></div><div class="field" style="margin-top:14px"><label for="settingsLanguage">Langue de l’espace administrateur</label><select id="settingsLanguage"><option value="fr">Français</option><option value="en">English</option><option value="he">עברית</option><option value="yi">ייִדיש</option></select></div><div class="actions" style="justify-content:flex-end;margin-top:20px"><button type="button" id="settingsCancel" class="button">Annuler</button><button type="button" id="settingsSave" class="button primary">Enregistrer</button></div><p id="settingsError" class="msg"></p></section>';document.body.append(overlay);translateAdminText(overlay);const language=overlay.querySelector('#settingsLanguage');language.value=adminLanguage;const close=()=>overlay.remove();overlay.querySelector('#settingsClose').onclick=close;overlay.querySelector('#settingsCancel').onclick=close;overlay.onclick=e=>{if(e.target===overlay)close()};overlay.querySelector('#settingsSave').onclick=async()=>{const name=overlay.querySelector('#settingsShop').value.trim();if(!name){overlay.querySelector('#settingsError').textContent='Saisissez un nom pour la boutique.';return}try{if(name!==p.shop_name){await cloud.updateShopName(name);state.data.profile.shop_name=name}localStorage.setItem('yidream-admin-language',language.value);location.reload()}catch(e){overlay.querySelector('#settingsError').textContent=errorText(e)}}};
 
  $('#logout').onclick=async()=>{await disconnectAndroidWorkspace().catch(()=>{});await cloud.signOut();state.session=null;state.data=null;authScreen()};
  bindMdmNavigation();
+ bindNavigationMenu();
  document.querySelectorAll('[data-platform-toggle]').forEach(b=>b.onclick=()=>{const name=b.dataset.platformToggle;state.platformMenus[name]=!state.platformMenus[name];render()});
  document.querySelectorAll('[data-platform-action]').forEach(b=>b.onclick=openAndroidConfigurator);document.querySelectorAll('[data-open-android]').forEach(b=>b.onclick=openAndroidConfigurator);
 }
@@ -221,8 +325,8 @@ function renderOwnerPortal(){
  const d=state.ownerData||{applications:[],admins:[],stores:[],clients:[],devices:[],logs:[]};
  const tabs=[['dashboard','Accueil'],['yzmdm','Statistiques YZ MDM'],['applications','Candidatures'],['admins','Administrateurs'],['stores','Magasins'],['clients','Clients'],['devices','Appareils'],['maintenance',deviceCopy(adminLanguage,'maintenanceTitle')]];
  const ownerNavButton=([key,label])=>`<button data-owner-page="${key}" class="${state.ownerPage===key?'active':''}">${label}</button>`;
- const tabButtons=tabs.filter(([key])=>['dashboard','devices'].includes(key)).map(ownerNavButton).join('');
- const ownerManagement=`<details class="suite-secondary" ${['applications','admins','stores','clients','yzmdm','mdm-pair','maintenance'].includes(state.ownerPage)?'open':''}><summary>Gestion propriétaire</summary><nav class="nav">${tabs.filter(([key])=>!['dashboard','devices'].includes(key)).map(ownerNavButton).join('')}<button data-mdm-view="pair">Comptes et appareils</button></nav></details>`;
+
+ const ownerManagement=`<details class="suite-secondary" ${['applications','admins','stores','yzmdm','maintenance'].includes(state.ownerPage)?'open':''}><summary>Gestion propriétaire</summary><nav class="nav">${tabs.filter(([key])=>!['dashboard','devices','clients'].includes(key)).map(ownerNavButton).join('')}</nav></details>`;
  const mdmView=mdmViewForPage(state.ownerPage);
  let body='';
  if(mdmView&&mdmView!=='home'){
@@ -246,12 +350,19 @@ function renderOwnerPortal(){
  }else{
   body=ownerDeviceList(d);
  }
- if(mdmView==='home')body=welcomeMarkup()+mdmFrameMarkup('home')+`<section class="suite-owner-summary"><span>Gestion propriétaire</span><div><button class="link" data-owner-page="applications">${d.applications.filter(x=>x.status==='pending').length} candidatures en attente →</button><button class="link" data-owner-page="admins">Gérer les administrateurs →</button></div></section>`;
- app.innerHTML=`<div class="shell"><aside class="side"><div class="brand"><img src="${adminLogoUrl}" alt="Logo YiDream Admin">YiDream <span class="suite-word">Suite</span></div><div class="workspace">Console propriétaire</div><nav class="nav">${tabButtons}</nav>${appNavigation()}${ownerManagement}<div class="side-bottom"><div class="account-copy"><b>${esc(state.session?.user?.email||'Propriétaire')}</b><small>Gestion globale YiDream</small></div><button id="ownerLogout" class="logout-button" style="margin-top:12px">Se déconnecter</button></div></aside><main class="main"><header class="topbar"><span class="crumb">YiDream Suite / <b>${mdmView?MDM_TITLES[mdmView]:state.ownerPage==='android'?'Configurer un téléphone':tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration'}</b></span><div class="top-actions"><span class="role">PROPRIÉTAIRE</span><span class="hebrew-decor" dir="rtl" lang="he" aria-hidden="true">בס״ד</span></div></header><section class="content owner-content ${mdmView==='home'?'owner-content-home':''}">${mdmView||state.ownerPage==='android'?'':head(tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration','')}${body}</section></main></div>`;
- document.querySelectorAll('[data-owner-page]').forEach(b=>b.onclick=()=>{if(b.dataset.ownerPage==='dashboard'){navigateMdm('home');return}clearMdmHash();state.ownerPage=b.dataset.ownerPage;renderOwnerPortal()});document.querySelectorAll('[data-open-android]').forEach(b=>b.onclick=openAndroidConfigurator);if(state.ownerPage==='android')mountAndroidWorkspace($('#ownerAndroidWorkspace'));
+ if(mdmView==='home')body=dashboardMarkup(d)+`<section class="suite-owner-summary"><span>Gestion propriétaire</span><div><button class="link" data-owner-page="applications">${d.applications.filter(x=>x.status==='pending').length} <span>candidatures en attente →</span></button><button class="link" data-owner-page="admins">Gérer les administrateurs →</button></div></section>`;
+ app.innerHTML=`<div class="shell"><a class="suite-skip" href="#content">Aller au contenu</a><aside class="side"><button type="button" class="suite-menu-toggle" data-toggle-navigation aria-expanded="false" aria-controls="suiteNavigation">Menu</button><div class="brand"><img src="${adminLogoUrl}" alt="Logo YiDream Admin">YiDream <span class="suite-word">Suite</span></div><div class="workspace">Console propriétaire</div>${appNavigation()}${ownerManagement}<div class="side-bottom"><details class="suite-owner-account"><summary><span class="avatar">Y</span><span class="account-copy"><b>${esc(state.session?.user?.email||'Propriétaire')}</b><small>Compte propriétaire</small></span><span aria-hidden="true">⌃</span></summary><div class="suite-owner-menu"><label>Langue de l’espace<select id="ownerLanguage"><option value="fr">Français</option><option value="en">English</option><option value="he">עברית</option><option value="yi">ייִדיש</option></select></label><button id="ownerLogout" class="logout-button">Se déconnecter</button></div></details></div></aside><main class="main"><header class="topbar"><span class="crumb">YiDream Suite / <b>${mdmView?MDM_TITLES[mdmView]:state.ownerPage==='android'?'Configurer un téléphone':tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration'}</b></span><div class="top-actions"><span class="role">PROPRIÉTAIRE</span><span class="hebrew-decor" dir="rtl" lang="he" aria-hidden="true">בס״ד</span></div></header><section id="content" class="content owner-content ${mdmView==='home'?'owner-content-home':''}">${mdmView||state.ownerPage==='android'||state.ownerPage==='devices'&&state.selectedDeviceId?'':head(tabs.find(x=>x[0]===state.ownerPage)?.[1]||'Administration','')}${body}</section></main></div>`;
+ document.querySelectorAll('[data-owner-page]').forEach(b=>b.onclick=()=>{if(b.dataset.ownerPage==='dashboard'){navigateMdm('home');return}clearMdmHash();state.ownerPage=b.dataset.ownerPage;state.selectedDeviceId=null;state.deviceReadiness='';renderOwnerPortal()});document.querySelectorAll('[data-open-android]').forEach(b=>b.onclick=openAndroidConfigurator);if(state.ownerPage==='android')mountAndroidWorkspace($('#ownerAndroidWorkspace'));
  if(state.ownerPage==='maintenance'){
   hideMaintenanceCode=mountMaintenanceCode($('#ownerMaintenanceCode'),adminLanguage,cloud.getAndroidMaintenanceCode);
  }
+ bindNavigationMenu();
+ const ownerLanguage = $('#ownerLanguage');
+ ownerLanguage.value = adminLanguage;
+ ownerLanguage.onchange = () => {
+  localStorage.setItem('yidream-admin-language', ownerLanguage.value);
+  location.reload();
+ };
  $('#ownerLogout').onclick=async()=>{hideMaintenanceCode();await disconnectAndroidWorkspace().catch(()=>{});await cloud.signOut();state.session=null;state.data=null;state.ownerData=null;publicPortal()};
  document.querySelectorAll('[data-review]').forEach(b=>b.onclick=async()=>{try{await cloud.reviewAdminApplication(b.dataset.id,b.dataset.review==='approve');await reloadOwner()}catch(e){notify(errorText(e))}});
  document.querySelectorAll('[data-application-mail]').forEach(button=>{const id=button.dataset.applicationMail;const status=document.getElementById('mail-'+id);const update=async()=>{const rows=await cloud.applicationEmailStatus(id);if(status)status.textContent=rows?.some(x=>x.event===button.dataset.applicationStatus&&x.status==='sent')?'Message de suivi envoyé':'Message de suivi en attente';};update();button.onclick=async()=>{button.disabled=true;try{await cloud.sendApplicationEmail(id);await update();}finally{button.disabled=false;}};});
@@ -267,9 +378,10 @@ function renderOwnerPortal(){
    };
   });
   bindDeviceDetails(d, () => renderOwnerPortal(), reloadOwner);
-  bindDeviceSearch();
+  bindDeviceFilters(() => renderOwnerPortal());
  }
  bindMdmNavigation();
+ if(state.ownerPage==='dashboard')bindDashboard();
  if(state.ownerPage==='yzmdm') loadYzMdmDashboard($('#yzMdmStats'),d);
 }
 
@@ -371,41 +483,88 @@ function render(){
  if(!state.data)return;
  if(state.page!=='android')disposeAndroidWizard();
  shell();const c=$('#content'),d=state.data;
- const mdmView=mdmViewForPage(state.page);if(mdmView&&mdmView!=='home'){c.innerHTML=(mdmView==='home'?welcomeMarkup():'')+mdmFrameMarkup(mdmView);return}
+ const mdmView=mdmViewForPage(state.page);if(mdmView&&mdmView!=='home'){c.innerHTML=mdmFrameMarkup(mdmView);return}
  if(state.page==='android'){c.innerHTML='<div id="androidHost"></div>';mountAndroidWorkspace($('#androidHost'));return}
  if(state.page==='dashboard'){
-  c.innerHTML=welcomeMarkup()+mdmFrameMarkup('home')+`<section class="panel suite-recent"><div class="panel-head"><h2>Appareils récents</h2><button class="link" data-goto="devices">Tout voir →</button></div>${d.devices.length?d.devices.slice(0,5).map(deviceRow).join(''):'<div class="empty">Aucun appareil inscrit pour le moment.</div>'}</section>`;
-  c.querySelector('[data-open-android]').onclick=()=>openAndroidConfigurator();
-  c.querySelector('[data-goto="devices"]').onclick=()=>{clearMdmHash();state.page='devices';state.tab='Tous';state.platformLabel='';render()};
+  c.innerHTML=dashboardMarkup(d);
+  bindDashboard();
  }else if(state.page==='devices')renderDevices(c,d);
  else if(state.page==='clients')renderClients(c,d);
  else renderActivity(c,d);
 }
-function deviceRow(x){
- const cl=state.data.clients.find(c=>c.id===x.client_id);
- const icon={Android:'🤖',iOS:'▯',macOS:'▱',Windows:'▦'}[x.platform]||'▣';
- return `<div class="device-row"><div class="device-name"><span class="device-icon">${icon}</span><span><b>${esc(x.name)}</b><small>${esc(x.platform)} · ${cl?esc(cl.name):'Sans client'} · ${x.configuration_status==='configured'?'Configuré':'À configurer'}</small></span></div><span class="cell">${cl?esc(cl.name):'Sans client'}</span><span class="badge">${esc(x.platform)}</span><span class="cell">${new Date(x.created_at).toLocaleDateString('fr-FR')}</span></div>`;
+function deviceRow(device, data) {
+ const client = data.clients.find(client => client.id === device.client_id);
+ const ready = device.configuration_status === 'configured';
+ return `<button type="button" class="suite-device-row" data-device-detail="${esc(device.id)}">
+   <span class="device-icon" aria-hidden="true">▯</span>
+   <span class="suite-device-identity"><b>${esc(device.name)}</b><small>${esc(device.platform)} · <span>${esc(client?.name || 'Sans client')}</span></small></span>
+   <span class="suite-device-state ${ready ? 'ready' : 'pending'}">${ready ? 'Approuvé' : 'À préparer'}</span>
+   <span class="suite-row-arrow" aria-hidden="true">→</span>
+ </button>`;
 }
 function deviceStatusText(device){return device.configuration_status==='configured'?'Configuré par le propriétaire':device.configuration_status==='needs_configuration'?'En attente de préparation':'État de préparation non renseigné'}
 function ownerDeviceList(data) {
  const selected = data.devices.find(device => device.id === state.selectedDeviceId);
- const rows = data.devices.map(device => {
-  const store = data.stores.find(store => store.user_id === device.user_id);
-  const ready = device.configuration_status === 'configured';
-  return `<tr data-device-search="${esc(device.name + ' ' + device.id)}"><td><button type="button" class="link" data-device-detail="${esc(device.id)}">${esc(device.name)}</button></td>
-    <td>${esc(device.platform)}</td><td>${esc(store?.shop_name || device.user_id)}</td>
-    <td>${esc(deviceStatusText(device))}</td>
-    <td>${ready ? `<button class="link" data-device-ready="${esc(device.id)}" data-ready="false">${deviceCopy(adminLanguage, 'revokeApproval')}</button>` : ''}</td></tr>`;
- }).join('');
- return `<section class="panel">
-  <div class="panel-head"><h2>Appareils et préparation</h2>
-    <button class="link" data-open-android>Configurer un téléphone</button></div>
-  ${deviceSearchInput()}
-  <div id="deviceDetail">${selected ? renderDeviceDetails(selected, data) : ''}</div>
-  <div class="table-wrap"><table class="table">
-   <thead><tr><th>Appareil</th><th>Plateforme</th><th>Magasin</th><th>Préparation</th><th></th></tr></thead>
-   <tbody>${rows || '<tr><td colspan="5">Aucun appareil enregistré.</td></tr>'}</tbody>
-  </table></div></section>`;
+ if (selected) return `<div id="deviceDetail">${renderDeviceDetails(selected, data)}</div>`;
+ const devices = filteredDevices(data.devices);
+ return `<section class="panel suite-device-list">
+   ${deviceListToolbar(data.devices)}
+   <div class="table-wrap"><table class="table">
+     <thead><tr><th>Appareil</th><th>Client</th><th>Magasin</th><th>Préparation</th><th></th></tr></thead>
+     <tbody>${devices.map(device => {
+       const store = data.stores.find(store => store.user_id === device.user_id);
+       const client = data.clients.find(client => client.id === device.client_id);
+       return deviceTableRow(device, client?.name, store?.shop_name || device.user_id);
+     }).join('')}</tbody>
+   </table></div>
+   ${deviceListEmpty(devices.length, data.devices.length)}
+ </section>`;
+}
+
+function filteredDevices(devices) {
+ return devices.filter(device => (state.tab === 'Tous' || device.platform === state.tab) &&
+   (state.deviceReadiness === 'pending' ? device.configuration_status === 'needs_configuration' :
+     state.deviceReadiness === 'ready' ? device.configuration_status === 'configured' : true));
+}
+
+function deviceListToolbar(devices) {
+ const platforms = [...new Set(devices.map(device => device.platform))].sort();
+ return `<div class="suite-list-toolbar">${deviceSearchInput()}
+   <select data-device-platform aria-label="Plateforme">
+     <option value="Tous">Toutes les plateformes</option>
+     ${platforms.map(platform => `<option ${state.tab === platform ? 'selected' : ''} value="${esc(platform)}">${esc(platform)}</option>`).join('')}
+   </select></div>
+   <div class="suite-filter-tabs" role="group" aria-label="Préparation">
+     ${[['','Tous'], ['pending','À préparer'], ['ready','Approuvés']].map(([value, label]) =>
+       `<button type="button" data-readiness="${value}" aria-pressed="${state.deviceReadiness === value}">${label}<span>${devices.filter(device => value === 'pending' ? device.configuration_status === 'needs_configuration' : value === 'ready' ? device.configuration_status === 'configured' : true).length}</span></button>`).join('')}
+   </div>`;
+}
+
+function deviceTableRow(device, client, store) {
+ const ready = device.configuration_status === 'configured';
+ return `<tr data-device-search="${esc([device.name, device.id, client, store].filter(Boolean).join(' '))}">
+   <td><button type="button" class="suite-table-device" data-device-detail="${esc(device.id)}"><span class="device-icon" aria-hidden="true">▯</span><span><b>${esc(device.name)}</b><small>${esc(device.platform)}</small></span></button></td>
+   <td data-device-client="${esc(device.id)}">${esc(client || 'Sans client')}</td>
+   ${store ? `<td>${esc(store)}</td>` : ''}
+   <td><span class="suite-device-state ${ready ? 'ready' : 'pending'}" title="${esc(deviceStatusText(device))}">${ready ? 'Approuvé' : 'À préparer'}</span></td>
+   <td><button type="button" class="link" data-device-detail="${esc(device.id)}">Gérer →</button></td>
+ </tr>`;
+}
+
+function deviceListEmpty(visible, total) {
+ return `<div class="suite-empty" data-device-empty ${visible ? 'hidden' : ''}>
+   <strong>${total ? 'Aucun appareil ne correspond à votre recherche.' : 'Votre premier appareil commence ici.'}</strong>
+   ${total ? '' : '<p>Configurez un téléphone pour le retrouver dans votre parc.</p><button type="button" class="button" data-open-android>Configurer un téléphone</button>'}
+ </div>`;
+}
+
+function bindDeviceFilters(rerender) {
+ const platform = $('[data-device-platform]');
+ if (platform) platform.onchange = () => { state.tab = platform.value; rerender(); };
+ document.querySelectorAll('[data-readiness]').forEach(button => {
+   button.onclick = () => { state.deviceReadiness = button.dataset.readiness; rerender(); };
+ });
+ bindDeviceSearch();
 }
 
 function deviceSearchInput() {
@@ -420,9 +579,13 @@ function bindDeviceSearch() {
  const update = () => {
   state.deviceQuery = input.value;
   const query = input.value.trim().toLowerCase();
+  let visible = 0;
   document.querySelectorAll('[data-device-search]').forEach(row => {
    row.hidden = !row.dataset.deviceSearch.toLowerCase().includes(query);
+   if (!row.hidden) visible++;
   });
+  const empty = $('[data-device-empty]');
+  if (empty) empty.hidden = visible > 0;
  };
  input.addEventListener('input', update);
  update();
@@ -431,26 +594,35 @@ function bindDeviceSearch() {
 function renderDeviceDetails(device) {
  const isAndroid = device.platform === 'Android';
  const copy = key => deviceCopy(adminLanguage, key);
- const canApprove = isAndroid && state.platformRole === 'owner' && device.configuration_status !== 'configured';
+ const owner = state.platformRole === 'owner';
+ const ready = device.configuration_status === 'configured';
  return `<section class="panel device-detail-card">
-  <div class="device-detail-head">
-   <div><small>FICHE APPAREIL</small><h2>${esc(device.name)}</h2><p>${esc(device.platform)} · ${esc(deviceStatusText(device))}</p></div>
-   <button type="button" class="link" data-close-device-detail>Fermer</button>
-  </div>
-  <div class="device-record-id"><small>${copy('deviceId')}</small>
-   <div class="setup-id"><code dir="ltr">${esc(device.id)}</code>
-    <button type="button" class="button" data-copy-device-id>${copy('copy')}</button></div>
-  </div>
-  ${device.note ? `<div class="device-note"><small>NOTE INTERNE</small><p>${esc(device.note)}</p></div>` : ''}
-  ${isAndroid && device.configuration_status === 'configured'
-    ? '<section class="device-enrollment" data-device-enrollment></section>' : ''}
-  <div data-device-controls></div>
-  ${canApprove ? `<p class="small">${copy('approvalHint')}</p>
-    <button type="button" class="button primary" data-approve-record>${copy('approval')}</button>` : ''}
-  <div class="device-detail-footer">
-   <div>${isAndroid ? `<button type="button" class="button" data-configure-device="${esc(device.id)}">Ouvrir la configuration Android</button>` : ''}
-   <button type="button" class="button" data-remove-detail="${esc(device.id)}">Retirer la fiche</button></div>
-  </div>
+   <button type="button" class="link suite-back" data-close-device-detail>← Retour aux appareils</button>
+   <div class="device-detail-head">
+     <div class="suite-record-title"><span class="device-icon" aria-hidden="true">▯</span>
+       <div><h2>${esc(device.name)}</h2><p>${esc(device.platform)} <span class="suite-device-state ${ready ? 'ready' : 'pending'}">${ready ? 'Approuvé' : 'À préparer'}</span></p></div>
+     </div>
+   </div>
+   <div class="device-record-id"><span>${copy('deviceId')}</span>
+     <div class="setup-id"><code dir="ltr">${esc(device.id)}</code>
+       <button type="button" class="button" data-copy-device-id>${copy('copy')}</button></div>
+   </div>
+   ${!ready ? `<div class="suite-next-step"><div><b>${isAndroid ? 'Préparer ce téléphone' : 'Préparation de l’appareil'}</b>
+     <p>${owner && isAndroid ? copy('approvalHint') : copy('awaiting')}</p></div>
+     ${owner && isAndroid ? `<button type="button" class="button primary" data-approve-record>${copy('approval')}</button>` : ''}</div>` : ''}
+   <div data-device-controls></div>
+   ${isAndroid && ready ? `<details class="suite-record-section">
+     <summary><b>Connexion au compte</b><span>Code et récupération</span></summary>
+     <section class="device-enrollment" data-device-enrollment></section>
+   </details>` : ''}
+   ${device.note ? `<details class="suite-record-section"><summary><b>Note interne</b></summary><p>${esc(device.note)}</p></details>` : ''}
+   <details class="suite-record-section suite-record-actions"><summary><b>Autres actions</b></summary>
+     <div class="actions">
+       ${isAndroid ? `<button type="button" class="button" data-configure-device="${esc(device.id)}">Ouvrir la configuration Android</button>` : ''}
+       ${owner && ready ? `<button type="button" class="button" data-device-ready="${esc(device.id)}" data-ready="false">${copy('revokeApproval')}</button>` : ''}
+       <button type="button" class="link danger" data-remove-detail="${esc(device.id)}">Retirer la fiche</button>
+     </div>
+   </details>
  </section>`;
 }
 
@@ -508,17 +680,30 @@ function bindDeviceDetails(data, rerender, reload) {
   } catch (error) { notify(errorText(error)); }
  };
 }
-function renderDevices(c,d){
- const rows=d.devices.filter(x=>state.tab==='Tous'||x.platform===state.tab);
- const selected=d.devices.find(x=>x.id===state.selectedDeviceId);
- c.innerHTML=head(state.platformLabel||'Appareils','Appareils inscrits dans votre espace revendeur.', '<button class="button primary" id="add">＋ Ajouter un appareil</button>')+`<div class="panel"><div class="tabs">${['Tous','Android','iOS','macOS','Windows','Other'].map(x=>`<button data-tab="${x}" class="${state.tab===x?'active':''}">${x} ${x==='Tous'?d.devices.length:d.devices.filter(z=>z.platform===x).length}</button>`).join('')}</div><div class="actions" style="margin-bottom:14px">${deviceSearchInput()}</div><div id="form"></div><div id="deviceDetail">${selected?renderDeviceDetails(selected,d):''}</div><div class="table-wrap">${rows.length?`<table class="table"><thead><tr><th>Appareil</th><th>Plateforme</th><th>Client</th><th>Préparation</th><th>Ajouté</th><th></th></tr></thead><tbody>${rows.map(x=>{const cl=d.clients.find(y=>y.id===x.client_id);return `<tr data-device-search="${esc(x.name + ' ' + x.id)}"><td><button type="button" class="link" data-device-detail="${x.id}">${esc(x.name)}</button></td><td>${esc(x.platform)}</td><td data-device-client="${esc(x.id)}">${cl?esc(cl.name):'—'}</td><td>${esc(deviceStatusText(x))}</td><td>${new Date(x.created_at).toLocaleDateString('fr-FR')}</td><td><button class="link" data-remove="${x.id}">Retirer</button></td></tr>`}).join('')}</tbody></table>`:'<div class="empty">Aucun appareil correspondant.</div>'}</div><div class="notice">L’état de préparation est validé par le propriétaire YiDream. La présence et la connexion USB ne sont pas détectées depuis cette liste.</div></div>`;
- bindDeviceSearch();
- document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;state.platformLabel=state.tab==='Tous'?'':state.tab;render()});
- $('#add').onclick=()=>deviceForm(d);
- document.querySelectorAll('[data-device-detail]').forEach(b=>b.onclick=()=>{state.selectedDeviceId=b.dataset.deviceDetail;renderDevices($('#content'),state.data)});
- bindDeviceDetails(d, () => renderDevices($('#content'), state.data), refresh);
- document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{const id=b.dataset.remove;if(confirm('Retirer cette fiche ?'))try{await cloud.removeDevice(id);state.selectedDeviceId=null;await refresh()}catch(e){notify(errorText(e))}});
+function renderDevices(c, data) {
+ disposeDeviceEnrollment();
+ const selected = data.devices.find(device => device.id === state.selectedDeviceId);
+ const devices = filteredDevices(data.devices);
+ c.innerHTML = (selected ? '' : head('Appareils', 'Ouvrez une fiche pour gérer le profil, les accès et le compte.',
+   '<div class="actions"><button type="button" class="button" data-refresh-workspace>Actualiser</button><button type="button" class="button primary" data-open-android>＋ Configurer un téléphone</button></div>')) +
+   (selected ? `<div id="deviceDetail">${renderDeviceDetails(selected)}</div>` :
+     `<section class="panel suite-device-list">${deviceListToolbar(data.devices)}
+       <div class="table-wrap"><table class="table"><thead><tr><th>Appareil</th><th>Client</th><th>Préparation</th><th></th></tr></thead>
+         <tbody>${devices.map(device => deviceTableRow(device, data.clients.find(client => client.id === device.client_id)?.name)).join('')}</tbody>
+       </table></div>${deviceListEmpty(devices.length, data.devices.length)}
+       <details class="suite-manual-record"><summary>Créer une fiche manuellement</summary><div id="form"></div><button type="button" class="link" id="add">Créer une fiche</button></details>
+     </section>`);
+ bindDeviceFilters(() => renderDevices(c, data));
+ bindNavigationMenu();
+ c.querySelectorAll('[data-open-android]').forEach(button => { button.onclick = () => openAndroidConfigurator(); });
+ c.querySelectorAll('[data-device-detail]').forEach(button => {
+   button.onclick = () => { state.selectedDeviceId = button.dataset.deviceDetail; renderDevices(c, data); };
+ });
+ bindDeviceDetails(data, () => renderDevices(c, data), refresh);
+ const add = $('#add');
+ if (add) add.onclick = () => deviceForm(data);
 }
+
 function deviceForm(d){const el=$('#form');el.innerHTML=`<div class="panel"><div class="form"><div class="field"><label>Nom de l’appareil</label><input id="deviceName" placeholder="Ex. Galaxy A15"></div><div class="field"><label>Plateforme</label><select id="platform"><option>Android</option><option>iOS</option><option>macOS</option><option>Windows</option><option>Other</option></select></div><div class="field"><label>Client (facultatif)</label><select id="client"><option value="">—</option>${d.clients.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div><div class="field"><label>Note</label><input id="note" placeholder="Note interne"></div></div><div class="notice">Après l’inscription, l’appareil restera en attente jusqu’à sa configuration physique et à sa validation par le propriétaire YiDream.</div><div class="actions" style="margin-top:14px"><button id="save" class="button primary">Enregistrer</button><button id="cancel" class="button">Annuler</button></div></div>`;
  $('#cancel').onclick=()=>el.innerHTML='';$('#save').onclick=async()=>{try{const name=$('#deviceName').value.trim();if(!name)throw Error('Saisissez un nom pour l’appareil.');await cloud.addDevice({name,platform:$('#platform').value,clientId:$('#client').value,note:$('#note').value});await refresh()}catch(e){notify(errorText(e))}}
 }

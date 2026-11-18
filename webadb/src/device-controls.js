@@ -42,7 +42,8 @@ export function mountDeviceControls(host, options) {
     candidate.configuration_status === 'configured' && candidate.user_id === device.user_id);
   const permissionOptions = `<option value="">${copy('keepPermission')}</option>
     <option value="on">${copy('enablePermission')}</option><option value="off">${copy('disablePermission')}</option>`;
-  host.innerHTML = `<form class="device-client-form" data-client-form>
+  const assignedClient = eligibleClients.find(client => client.id === device.client_id);
+  const clientFormMarkup = `<form class="device-client-form" data-client-form>
     <label>${copy('client')}<select name="client">
       <option value="">${copy('noClient')}</option>
       ${eligibleClients.map(client => `<option value="${escape(client.id)}"
@@ -50,58 +51,80 @@ export function mountDeviceControls(host, options) {
     </select></label>
     <button class="button" type="submit">${copy('saveClient')}</button>
     <p data-client-status role="status"></p>
-  </form>
-  ${controlsAvailable ? `<section class="device-rules" data-rules>
+  </form>`;
+  host.innerHTML = `${controlsAvailable ? `<section class="device-rules" data-rules>
     <div class="device-rules-heading"><h3>${copy('deviceManager')}</h3>
       <button type="button" class="button" data-refresh-policy>${copy('refresh')}</button></div>
-    <p data-policy-status role="status"></p>
+    <div class="device-policy-feedback">
+      <p data-policy-status role="status" aria-live="polite"></p>
+      <small data-policy-sync></small>
+    </div>
     <p data-policy-error role="alert" hidden></p>
     <form class="device-manager-settings" data-device-settings hidden>
-      <label>${copy('deviceProfile')}<select name="profile">
+      <label class="device-profile-field">${copy('deviceProfile')}<select name="profile">
         <option value="">${copy('unclassified')}</option><option value="mp3">MP3</option><option value="qin">Qin</option>
       </select></label>
       <fieldset>
         <legend>${copy('requestPermissions')}</legend>
         <label class="device-check"><input name="appRequests" type="checkbox"> ${copy('appRequestsEnabled')}</label>
         <label class="device-check"><input name="siteRequests" type="checkbox"> ${copy('siteRequestsEnabled')}</label>
-        <p data-mp3-web hidden>${copy('mp3WebDisabled')}</p>
+        <p class="device-profile-note" data-mp3-web hidden>${copy('mp3WebDisabled')}</p>
       </fieldset>
-      <button class="button primary" type="submit">${copy('saveDeviceSettings')}</button>
+      <div class="device-settings-footer">
+        <button class="button primary" type="submit">${copy('saveDeviceSettings')}</button>
+        <p data-device-settings-status role="status" aria-live="polite"></p>
+      </div>
     </form>
-    ${peers.length > 1 ? `<details class="device-bulk-settings" data-bulk-settings hidden>
-      <summary>${copy('bulkRequests')}</summary>
-      <form data-bulk-requests>
-        <fieldset class="device-targets"><legend>${copy('selectDevices')}</legend>
-          ${peers.map(peer => `<label class="device-check"><input type="checkbox" name="targets"
-            value="${escape(peer.id)}"> ${escape(peer.name)}</label>`).join('')}
-        </fieldset>
-        <label>${copy('appRequestsLabel')}<select name="appRequests">${permissionOptions}</select></label>
-        <label>${copy('siteRequestsLabel')}<select name="siteRequests">${permissionOptions}</select></label>
-        <button class="button" type="submit">${copy('saveDeviceSettings')}</button>
-      </form>
+    <details class="device-control-section" data-rules-section>
+      <summary><span>${copy('rulesSection')}</span><span class="device-section-meta" data-rule-count></span></summary>
+      <div class="device-section-content">
+        <p class="device-section-hint">${copy('rulesHint')}</p>
+        <div data-rule-list></div>
+        <details class="device-rule-editor" data-rule-editor>
+          <summary>${copy('addRuleSection')}</summary>
+          <form data-rule-form class="device-rule-form" hidden>
+            <label><span class="device-visually-hidden">${copy('target')}</span><select name="kind">
+              <option value="site">${copy('site')}</option><option value="app">${copy('app')}</option>
+            </select></label>
+            <label><span class="device-visually-hidden">${copy('target')}</span>
+              <input name="target" placeholder="example.org" autocomplete="off" autocapitalize="off"
+                spellcheck="false" maxlength="2048" required></label>
+            <datalist id="device-app-packages">${packages.map(([label, name]) =>
+              `<option value="${escape(name)}" label="${escape(label)}"></option>`).join('')}</datalist>
+            <label><span class="device-visually-hidden">${copy('addRule')}</span><select name="action">
+              <option value="allow">${copy('allow')}</option><option value="temporary">${copy('temporaryAllow')}</option>
+              <option value="block">${copy('block')}</option>
+            </select></label>
+            <button type="submit" class="button primary">${copy('addRule')}</button>
+            <label class="device-rule-expiry" data-rule-expiry hidden>${copy('expiry')}
+              <input name="expires" type="datetime-local"></label>
+          </form>
+        </details>
+      </div>
+    </details>
+    <details class="device-control-section" data-client-section>
+      <summary><span>${copy('clientSection')}</span>
+        <span class="device-section-meta" data-assigned-client>${escape(assignedClient?.name || copy('noClient'))}</span>
+      </summary>
+      <div class="device-section-content">${clientFormMarkup}</div>
+    </details>
+    ${peers.length > 1 ? `<details class="device-control-section device-bulk-settings" data-bulk-settings hidden>
+      <summary><span>${copy('bulkSection')}</span></summary>
+      <div class="device-section-content">
+        <p class="device-section-hint">${copy('bulkRequests')}</p>
+        <form data-bulk-requests>
+          <fieldset class="device-targets"><legend>${copy('selectDevices')}</legend>
+            ${peers.map(peer => `<label class="device-check"><input type="checkbox" name="targets"
+              value="${escape(peer.id)}"> ${escape(peer.name)}</label>`).join('')}
+          </fieldset>
+          <label>${copy('appRequestsLabel')}<select name="appRequests">${permissionOptions}</select></label>
+          <label>${copy('siteRequestsLabel')}<select name="siteRequests">${permissionOptions}</select></label>
+          <button class="button" type="submit">${copy('saveDeviceSettings')}</button>
+          <p data-bulk-status role="status" aria-live="polite"></p>
+        </form>
+      </div>
     </details>` : ''}
-    <p data-device-settings-status role="status"></p>
-    <h4>${copy('rules')}</h4>
-    <p>${copy('rulesHint')}</p>
-    <div data-rule-list></div>
-    <form data-rule-form class="device-rule-form" hidden>
-      <label><span class="device-visually-hidden">${copy('target')}</span><select name="kind">
-        <option value="site">${copy('site')}</option><option value="app">${copy('app')}</option>
-      </select></label>
-      <label><span class="device-visually-hidden">${copy('target')}</span>
-        <input name="target" placeholder="example.org" autocomplete="off" autocapitalize="off"
-          spellcheck="false" maxlength="2048" required></label>
-      <datalist id="device-app-packages">${packages.map(([label, name]) =>
-        `<option value="${escape(name)}" label="${escape(label)}"></option>`).join('')}</datalist>
-      <label><span class="device-visually-hidden">${copy('addRule')}</span><select name="action">
-        <option value="allow">${copy('allow')}</option><option value="temporary">${copy('temporaryAllow')}</option>
-        <option value="block">${copy('block')}</option>
-      </select></label>
-      <button type="submit" class="button primary">${copy('addRule')}</button>
-      <label class="device-rule-expiry" data-rule-expiry hidden>${copy('expiry')}
-        <input name="expires" type="datetime-local"></label>
-    </form>
-  </section>` : ''}`;
+  </section>` : clientFormMarkup}`;
 
   function failure(error) {
     if (['PGRST202', 'PGRST205', '42P01', '42703'].includes(error?.code)) return copy('serviceMissing');
@@ -124,6 +147,10 @@ export function mountDeviceControls(host, options) {
       const value = clientSelect.value || null;
       await api.assignDeviceClient(device.id, value);
       device.client_id = value;
+      const clientSummary = host.querySelector('[data-assigned-client]');
+      if (clientSummary) {
+        clientSummary.textContent = eligibleClients.find(client => client.id === value)?.name || copy('noClient');
+      }
       options.onAssignment?.(value);
       clientStatus.textContent = copy('savedClient');
     } catch (error) {
@@ -136,6 +163,7 @@ export function mountDeviceControls(host, options) {
   if (!controlsAvailable) return;
   const rules = host.querySelector('[data-rules]');
   const status = rules.querySelector('[data-policy-status]');
+  const syncStatus = rules.querySelector('[data-policy-sync]');
   const policyError = rules.querySelector('[data-policy-error]');
   const list = rules.querySelector('[data-rule-list]');
   const form = rules.querySelector('[data-rule-form]');
@@ -159,9 +187,9 @@ export function mountDeviceControls(host, options) {
     else if (Number(policy.revision) > Number(policy.applied_revision)) state = 'rulesPending';
     else if (Number.isFinite(synchronized)) state = 'rulesApplied';
     status.textContent = copy(state);
-    if (Number.isFinite(synchronized)) {
-      status.textContent += ' · ' + copy('lastSync') + ' ' + new Date(synchronized).toLocaleString(language);
-    }
+    status.dataset.state = state;
+    syncStatus.textContent = Number.isFinite(synchronized)
+      ? copy('lastSync') + ' ' + new Date(synchronized).toLocaleString(language) : '';
     const supportsSettings = typeof policy.app_requests_enabled === 'boolean';
     settings.hidden = !supportsSettings;
     if (bulk) bulk.hidden = !supportsSettings;
@@ -185,7 +213,9 @@ export function mountDeviceControls(host, options) {
       }
     }
     const entries = Object.entries(policy.apps || {}).map(([target, allowed]) => ['app', target, allowed])
-      .concat(Array.from(siteRules, ([target, allowed]) => ['site', target, allowed]));
+      .concat(Array.from(siteRules, ([target, allowed]) => ['site', target, allowed]))
+      .filter(([, , allowed]) => typeof allowed === 'boolean');
+    rules.querySelector('[data-rule-count]').textContent = String(entries.length);
     list.replaceChildren();
     if (!entries.length) {
       const paragraph = document.createElement('p');
@@ -193,14 +223,19 @@ export function mountDeviceControls(host, options) {
       list.append(paragraph);
     }
     for (const [kind, target, allowed] of entries) {
-      if (typeof allowed !== 'boolean') continue;
       const row = document.createElement('div');
       row.className = 'device-rule';
-      const label = document.createElement('span');
-      label.textContent = packages.find(([, name]) => kind === 'app' && name === target)?.[0] || target;
-      label.title = target;
+      const identity = document.createElement('div');
+      identity.className = 'device-rule-identity';
+      const label = document.createElement('strong');
+      const name = packages.find(([, name]) => kind === 'app' && name === target)?.[0];
+      label.textContent = name || target;
+      const detail = document.createElement('small');
+      detail.textContent = name ? target : copy(kind);
+      identity.append(label, detail);
       const stateLabel = document.createElement('span');
       stateLabel.className = 'device-rule-state';
+      stateLabel.dataset.allowed = String(allowed);
       const expiresAt = kind === 'site' ? temporary.get(target) : null;
       const permanentlyAllowed = kind === 'site' && policy.sites?.[target] === true;
       stateLabel.textContent = expiresAt && !permanentlyAllowed
@@ -212,7 +247,7 @@ export function mountDeviceControls(host, options) {
       toggle.textContent = copy(expiresAt ? 'blockPermanently' : allowed ? 'block' : 'allow');
       toggle.setAttribute('aria-label', toggle.textContent + ' ' + label.textContent);
       toggle.onclick = () => runPolicy(() => api.setDeviceRule(device.id, kind, target, !allowed));
-      row.append(label, stateLabel, toggle);
+      row.append(identity, stateLabel, toggle);
       list.append(row);
     }
     form.hidden = false;
@@ -235,6 +270,7 @@ export function mountDeviceControls(host, options) {
       busy = false;
       rules.removeAttribute('aria-busy');
       rules.querySelectorAll('button, input, select').forEach(element => { element.disabled = false; });
+      siteOption.disabled = savedProfile === 'mp3';
       updateProfileFields();
       updateExpiryField();
     }
@@ -278,6 +314,7 @@ export function mountDeviceControls(host, options) {
   };
   if (bulk) {
     const bulkForm = bulk.querySelector('form');
+    const bulkStatus = bulkForm.querySelector('[data-bulk-status]');
     bulkForm.onsubmit = async event => {
       event.preventDefault();
       const data = new FormData(bulkForm);
@@ -285,7 +322,7 @@ export function mountDeviceControls(host, options) {
       const permission = name => data.get(name) ? data.get(name) === 'on' : null;
       const app = permission('appRequests');
       const site = permission('siteRequests');
-      settingsStatus.textContent = '';
+      bulkStatus.textContent = '';
       if (!ids.length || (app === null && site === null)) {
         setError(copy('invalidRequestSelection'));
         return;
@@ -295,8 +332,7 @@ export function mountDeviceControls(host, options) {
         return api.loadDevicePolicy(device.id);
       })) {
         bulkForm.reset();
-        bulk.open = false;
-        settingsStatus.textContent = copy('settingsSaved');
+        bulkStatus.textContent = copy('settingsSaved');
       }
     };
   }
@@ -333,6 +369,7 @@ export function mountDeviceControls(host, options) {
     if (await runPolicy(save)) {
       form.elements.target.value = '';
       expiryInput.value = '';
+      rules.querySelector('[data-rule-editor]').open = false;
     }
   });
   refresh.onclick = () => runPolicy(() => api.loadDevicePolicy(device.id));

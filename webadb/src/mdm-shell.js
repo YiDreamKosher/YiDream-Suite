@@ -26,7 +26,7 @@ export function mdmFrameSource(view, language = 'fr', pathname = typeof location
     embed: 'classic',
     view,
     lang: ['fr', 'en', 'he', 'yi'].includes(language) ? language : 'fr',
-    v: '20261112-account-windows'
+    v: '20261118-smooth'
   });
   const prefix = /\/admin(?:\/|\/index\.html)$/.test(pathname) ? '../' : './';
   return prefix + 'mdm-admin.html?' + params;
