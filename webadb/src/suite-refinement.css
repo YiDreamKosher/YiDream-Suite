@@ -189,3 +189,5 @@ body { font-size: 14px; line-height: 1.55; }
 :is(#androidWorkspace,#ownerAndroidWorkspace).android-guided button.primary { background: var(--accent); border-color: var(--accent); box-shadow: none; }
 :is(#androidWorkspace,#ownerAndroidWorkspace).android-guided button:hover { transform: none; box-shadow: none; }
 @media (max-width:760px) { .shell .heading > .actions { align-self: flex-start; flex-wrap: wrap; } }
+
+.shell .brand, .auth .brand { direction: ltr; }

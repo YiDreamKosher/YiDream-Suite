@@ -1,11 +1,11 @@
 {
   "name": "yidream-webadb",
   "version": "1.2.0",
-  "description": "YiDream Suite v1.2 \u2014 Web ADB configurator",
+  "description": "YiDream Suite v1.2 — Web ADB configurator",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "node scripts/build.mjs --serve",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/build.mjs --serve --port 4173"
   },
   "dependencies": {
     "@yume-chan/adb": "^2.6.4",
@@ -15,7 +15,7 @@
     "@yume-chan/stream-extra": "^2.6.1"
   },
   "devDependencies": {
-    "vite": "^8.3.1"
+    "esbuild": "0.28.2"
   },
   "private": true,
   "type": "module",

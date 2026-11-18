@@ -1,5 +1,9 @@
 export const suiteTranslations = {
   en: {
+    "← Retour à la présentation": "← Back to overview",
+    "ou": "or",
+    "Vos coordonnées et le nom de votre organisation servent à examiner votre demande et à gérer votre accès. Les fonctions d’administration sont réservées aux comptes approuvés.": "Your contact details and organization name are used to review your application and manage your access. Administration features are reserved for approved accounts.",
+    "J’ai lu cette information et je comprends que l’accès administrateur nécessite une approbation.": "I have read this information and understand that administrator access requires approval.",
     'Actualiser': 'Refresh',
     'Accueil': 'Home',
     'Appareils': 'Devices',
@@ -108,6 +112,10 @@ export const suiteTranslations = {
     'Fermer': 'Close'
   },
   he: {
+    "← Retour à la présentation": "חזרה לסקירה ←",
+    "ou": "או",
+    "Vos coordonnées et le nom de votre organisation servent à examiner votre demande et à gérer votre accès. Les fonctions d’administration sont réservées aux comptes approuvés.": "פרטי הקשר ושם הארגון משמשים לבדיקת המועמדות ולניהול הגישה שלכם. פעולות ניהול זמינות רק לחשבונות שאושרו.",
+    "J’ai lu cette information et je comprends que l’accès administrateur nécessite une approbation.": "קראתי את המידע ואני מבין שגישת מנהל דורשת אישור.",
     'Actualiser': 'רענון',
     'Accueil': 'בית',
     'Appareils': 'מכשירים',
@@ -216,6 +224,10 @@ export const suiteTranslations = {
     'Fermer': 'סגירה'
   },
   yi: {
+    "← Retour à la présentation": "צוריק צום איבערבליק ←",
+    "ou": "אָדער",
+    "Vos coordonnées et le nom de votre organisation servent à examiner votre demande et à gérer votre accès. Les fonctions d’administration sont réservées aux comptes approuvés.": "אייער קאָנטאַקט־פרטים און אָרגאַניזאַציע־נאָמען ווערן גענוצט צו איבערקוקן אייער בקשה און פירן אייער צוטריט. אַדמיניסטראַטאָר־פֿונקציעס זענען נאָר פֿאַר באַשטעטיקטע קאָנטעס.",
+    "J’ai lu cette information et je comprends que l’accès administrateur nécessite une approbation.": "איך האָב געלייענט די אינפֿאָרמאַציע און פֿאַרשטיי אַז אַדמיניסטראַטאָר־צוטריט דאַרף אַ באַשטעטיקונג.",
     'Actualiser': 'דערהײַנטיקן',
     'Accueil': 'היים',
     'Appareils': 'דיווייסעס',
