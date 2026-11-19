@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
-import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady, siteRequestWindow, isDeviceId } from './mdm-model.js?v=20261112-account-windows';
-import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261112';
-import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261118-smooth';
+import { BASE_APPS, parsePlayUrl, deviceLabel, matchesRequest, releaseReady, catalogStatus, catalogSections, siteRequestWindow, isDeviceId } from './mdm-model.js?v=20261119-safecore';
+import { VIEWS, resolveView, mayImport } from './mdm-views.js?v=20261119-safecore';
+import { accountText, translateAccountPanel } from './mdm-app-accounts-i18n.js?v=20261119-safecore';
 import { checkPlayCatalog } from './mdm-play-updates.js?v=20261106';
 import { inspectApk } from './mdm-apk.js?v=20261030';
 const db=createClient('https://jqrznghqwdjbizjehzrm.supabase.co','sb_publishable_YG9zgjQ5Y56WiBtKdJMQvA_-UBAFv9B');
@@ -18,6 +18,8 @@ translateAccountPanel(document.querySelector('.view-tools'),accountLanguage);
 translateAccountPanel(document.querySelector('.topbar'),accountLanguage);
 for(const element of document.querySelectorAll('[data-view="pair"]'))translateAccountPanel(element,accountLanguage);
 let devices=[],clients=[],requests=[],catalog=[],currentUser=null,isOwner=false,uploaded=null;
+const catalogGroupsOpen = new Map();
+let catalogWasSearching = false;
 let accountLoad=0,workspaceLoad=0,codeExpiryTimer=null;
 let linkAccount=null,linkGeneration=0;
 let playCheckResults=new Map(),playCheckRun=0,playChecking=false,playAbort=null;
@@ -249,32 +251,64 @@ function renderRequests() {
   }
 }
 function fillApp(app){form.elements.name.value=app.name||'';form.elements.package_name.value=app.package_name||'';form.elements.description.value=app.description||'';for(const key of['source_url','version_name','version_code','apk_url','sha256'])form.elements[key].value=app[key]||'';form.elements.is_base.checked=!!app.is_base;form.dataset.editId=app.id||'';form.dataset.ownerId=app.owner_id||currentUser.id;uploaded=null;$('apkFile').value='';$('apkInfo').textContent='Importez une nouvelle APK pour publier une mise à jour.';$('editorTitle').textContent=accountCopy('Publier une version')+' · '+app.name;openEditor();}
-function renderCatalog(){
- const container=$('catalog');container.replaceChildren();
- const query=$('catalogSearch').value.trim().toLocaleLowerCase('fr');
- const visible=catalog.filter(app=>[app.name,app.package_name,app.description].some(value=>(value||'').toLocaleLowerCase('fr').includes(query)));
- if(!visible.length){
-  const box=empty(container,catalog.length?'Aucun résultat':'Aucune application publiée',catalog.length?'Essayez un autre nom d’application.':'Ajoutez une application pour préparer sa publication.');
-  const action=button(catalog.length?'Effacer la recherche':'Ajouter une application','ghost');
-  action.onclick=()=>{if(catalog.length){$('catalogSearch').value='';renderCatalog();}else $('addApp').click();};
-  box.append(action);
+function catalogRow(app) {
+ const row=document.createElement('article');row.className='catalog-row';
+ const identity=document.createElement('div');identity.className='app-identity';
+ const title=document.createElement('div');
+ const name=text('strong','');name.textContent=app.name||app.package_name;
+ const packageName=text('small','');packageName.textContent=app.package_name;
+ title.append(name,packageName);
+ const avatar=text('span',Array.from(app.name||'?')[0],'app-avatar');avatar.setAttribute('aria-hidden','true');
+ identity.append(avatar,title);
+ const detail=document.createElement('div');detail.className='app-detail';
+ const audience=app.is_base?'Application de base':app.requires_device_approval?'Appareils autorisés uniquement':'Votre catalogue';
+ const description=text('p','');description.textContent=app.description||accountCopy('Application Android');
+ detail.append(description,text('small',audience));
+ const state=catalogStatus(app);
+ const release=document.createElement('div');release.className='app-release';
+ release.append(text('small',app.version_name?'Version '+app.version_name:'APK à préparer'),
+   text('span',state==='hidden'?'Masquée':state==='available'?'Disponible':'À préparer','pill '+(state==='available'?'approved':'pending')));
+ const actions=document.createElement('div');actions.className='row-actions';
+ const more=document.createElement('details');more.className='row-more';more.append(text('summary','Autres actions'));
+ if(isOwner||app.owner_id===currentUser.id){
+   const edit=button(releaseReady(app)?'Mettre à jour':'Préparer l’application');edit.onclick=()=>fillApp(app);
+   const toggle=button(app.enabled?'Masquer':'Afficher','ghost');
+   toggle.onclick=()=>task(toggle,async()=>{check(await db.from('yd_catalog').update({enabled:!app.enabled}).eq('id',app.id));await load();});
+   actions.append(edit);more.append(toggle);
  }
- for(const app of visible){
-  const row=document.createElement('article');row.className='catalog-row';
-  const identity=document.createElement('div');identity.className='app-identity';
-  const title=document.createElement('div');title.append(text('strong',app.name),text('small',app.package_name));
-  identity.append(text('span',(app.name||'?').slice(0,1),'app-avatar'),title);
-  const detail=document.createElement('div');detail.className='app-detail';
-  const audience = app.is_base ? 'Application de base' :
-    app.requires_device_approval ? accountCopy('Appareils autorisés uniquement') : 'Votre catalogue';
-  detail.append(text('p',app.description||'Application Android'),text('small',audience));
-  const release=document.createElement('div');release.className='app-release';release.append(text('small',app.version_name?'Version '+app.version_name:'APK à préparer'),text('span',!app.enabled?'Masquée':releaseReady(app)?'Disponible':'À compléter','pill '+(app.enabled&&releaseReady(app)?'approved':'pending')));
-  const actions=document.createElement('div');actions.className='row-actions';
-  const more=document.createElement('details');more.className='row-more';more.append(text('summary','Autres actions'));
-  if(isOwner||app.owner_id===currentUser.id){const edit=button(releaseReady(app)?'Mettre à jour':'Préparer l’application');edit.onclick=()=>fillApp(app);const toggle=button(app.enabled?'Masquer':'Afficher','ghost');toggle.onclick=()=>task(toggle,async()=>{check(await db.from('yd_catalog').update({enabled:!app.enabled}).eq('id',app.id));await load();});actions.append(edit);more.append(toggle);}
-  if(app.source_url){try{const url=new URL(app.source_url);if(url.protocol==='https:'){const link=document.createElement('a');link.className='button ghost';link.textContent=accountCopy('Fiche officielle ↗');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';more.append(link);}}catch(_){} }
-  if(more.children.length>1)actions.append(more);
-  row.append(identity,detail,release,actions);container.append(row);
+ if(app.source_url){try{const url=new URL(app.source_url);if(url.protocol==='https:'){
+   const link=document.createElement('a');link.className='button ghost';link.textContent=accountCopy('Fiche officielle');
+   link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';more.append(link);
+ }}catch(_){} }
+ if(more.children.length>1)actions.append(more);
+ row.append(identity,detail,release,actions);
+ return row;
+}
+function renderCatalog(){
+ const container=$('catalog');
+ if(!catalogWasSearching)for(const group of container.querySelectorAll('[data-catalog-group]'))catalogGroupsOpen.set(group.dataset.catalogGroup,group.open);
+ const query=$('catalogSearch').value;
+ catalogWasSearching=Boolean(query.trim());
+ container.replaceChildren();
+ const sections=catalogSections(catalog,query,$('catalogFilter').value);
+ const count=sections.reduce((total,section)=>total+section.apps.length,0);
+ $('catalogTotal').textContent=new Intl.NumberFormat(accountLanguage).format(count);
+ $('catalogTotal').setAttribute('aria-label',accountCopy('Applications affichées')+' '+count);
+ if(!sections.length){
+   const box=empty(container,catalog.length?'Aucun résultat':'Aucune application publiée',
+     catalog.length?'Essayez un autre nom ou un autre statut.':'Ajoutez une application pour préparer sa publication.');
+   const action=button(catalog.length?'Réinitialiser les filtres':'Ajouter une application','ghost');
+   action.onclick=()=>{if(catalog.length){$('catalogSearch').value='';$('catalogFilter').value='all';renderCatalog();}else $('addApp').click();};
+   box.append(action);
+ }
+ for(const section of sections){
+   const group=document.createElement('details');group.className='catalog-group';group.dataset.catalogGroup=section.key;
+   group.open=Boolean(query.trim())||(catalogGroupsOpen.has(section.key)?catalogGroupsOpen.get(section.key):section.apps.length<=8);
+   const summary=document.createElement('summary');
+   summary.append(text('span',section.title),text('span',new Intl.NumberFormat(accountLanguage).format(section.apps.length),'catalog-group-count'));
+   const rows=document.createElement('div');rows.className='catalog-group-rows';
+   rows.append(...section.apps.map(catalogRow));group.append(summary,rows);container.append(group);
+   group.addEventListener('toggle',()=>{if(group.isConnected&&!catalogWasSearching)catalogGroupsOpen.set(section.key,group.open);});
  }
  resizeParent();
 }
@@ -353,7 +387,6 @@ async function load() {
   $('navPending').hidden = !pending;
   $('appCount').textContent = catalog.filter(app => app.enabled && releaseReady(app)).length;
   $('deviceCount').textContent = devices.length;
-  $('catalogTotal').textContent = new Intl.NumberFormat(accountLanguage).format(catalog.length);
   $('account').textContent = user.email;
   $('baseControl').hidden = !isOwner;
 
@@ -567,7 +600,7 @@ async function runPlayChecks(retry=false){
 $('checkPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks());
 $('retryPlayUpdates').onclick=e=>task(e.currentTarget,()=>runPlayChecks(true));
 $('loginForm').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{check(await db.auth.signInWithPassword({email:$('email').value,password:$('password').value}));$('password').value='';await load();});};
-$('refresh').onclick=e=>task(e.currentTarget,load);$('viewRefresh').onclick=e=>task(e.currentTarget,load);$('catalogSearch').oninput=renderCatalog;$('requestSearch').oninput=renderRequests;$('requestFilter').onchange=renderRequests;
+$('refresh').onclick=e=>task(e.currentTarget,load);$('viewRefresh').onclick=e=>task(e.currentTarget,load);$('catalogSearch').oninput=renderCatalog;$('catalogFilter').onchange=renderCatalog;$('requestSearch').oninput=renderRequests;$('requestFilter').onchange=renderRequests;
 $('createAccountForm').onsubmit = event => {
   event.preventDefault();
   const action = $('createAccount');
