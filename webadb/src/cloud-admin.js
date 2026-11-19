@@ -181,6 +181,12 @@ export function saveDeviceControls(id, profile, appRequests, siteRequests) {
   });
 }
 
+export function saveDeviceSections(id, webEnabled, appStoreEnabled) {
+  return deviceRpc('set_yidream_device_sections', {
+    target_device_id: id, web_enabled: webEnabled, app_store_enabled: appStoreEnabled
+  });
+}
+
 export function saveRequestPermissions(ids, appRequests, siteRequests) {
   return deviceRpc('yd_admin_set_request_permissions', {
     target_devices: ids, app_requests_enabled: appRequests, site_requests_enabled: siteRequests

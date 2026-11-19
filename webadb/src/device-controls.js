@@ -33,6 +33,15 @@ export function normalizeSiteExpiry(localDateTime, now = Date.now()) {
   return date.toISOString();
 }
 
+/** Profile defaults remain closed for MP3 until a boolean server exception arrives. */
+export function deviceSections(policy) {
+  const fallback = policy.device_profile !== 'mp3';
+  return {
+    webEnabled: typeof policy.web_enabled === 'boolean' ? policy.web_enabled : fallback,
+    appStoreEnabled: typeof policy.app_store_enabled === 'boolean' ? policy.app_store_enabled : fallback
+  };
+}
+
 export function mountDeviceControls(host, options) {
   const { device, devices = [], clients, language, packages, api } = options;
   const copy = key => deviceCopy(language, key);
@@ -68,13 +77,22 @@ export function mountDeviceControls(host, options) {
         <legend>${copy('requestPermissions')}</legend>
         <label class="device-check"><input name="appRequests" type="checkbox"> ${copy('appRequestsEnabled')}</label>
         <label class="device-check"><input name="siteRequests" type="checkbox"> ${copy('siteRequestsEnabled')}</label>
-        <p class="device-profile-note" data-mp3-web hidden>${copy('mp3WebDisabled')}</p>
+        <p class="device-profile-note" data-mp3-web hidden>${copy('webSectionDisabled')}</p>
       </fieldset>
       <div class="device-settings-footer">
         <button class="button primary" type="submit">${copy('saveDeviceSettings')}</button>
         <p data-device-settings-status role="status" aria-live="polite"></p>
       </div>
     </form>
+    <fieldset class="device-section-settings" data-device-sections hidden>
+      <legend>${copy('visibleSections')}</legend>
+      <label class="device-check"><input type="checkbox" data-web-enabled> ${copy('webSection')}</label>
+      <label class="device-check"><input type="checkbox" data-store-enabled> ${copy('storeSection')}</label>
+      <p class="device-section-hint">${copy('sectionsHint')}</p>
+      <p class="device-section-hint">${copy('sectionsVersion')}</p>
+      <p class="device-section-hint" data-sections-profile-hint hidden>${copy('saveProfileFirst')}</p>
+      <p data-sections-status role="status" aria-live="polite"></p>
+    </fieldset>
     <details class="device-control-section" data-rules-section>
       <summary><span>${copy('rulesSection')}</span><span class="device-section-meta" data-rule-count></span></summary>
       <div class="device-section-content">
@@ -131,6 +149,7 @@ export function mountDeviceControls(host, options) {
     if (/DEVICE_NOT_AVAILABLE|APP_ACCESS_DENIED|CONFIGURED_DEVICE_REQUIRED/i.test(error?.message || '')) return copy('unavailableDevice');
     if (error?.message === 'INVALID_SITE_WINDOW') return copy('invalidExpiry');
     if (error?.message === 'MP3_WEB_DISABLED') return copy('mp3WebDisabled');
+    if (error?.message === 'WEB_SECTION_DISABLED') return copy('webSectionDisabled');
     return copy('retry');
   }
 
@@ -172,6 +191,13 @@ export function mountDeviceControls(host, options) {
   const bulk = rules.querySelector('[data-bulk-settings]');
   const settingsStatus = rules.querySelector('[data-device-settings-status]');
   const siteOption = form.elements.kind.querySelector('[value="site"]');
+  const sections = rules.querySelector('[data-device-sections]');
+  const sectionWeb = sections.querySelector('[data-web-enabled]');
+  const sectionStore = sections.querySelector('[data-store-enabled]');
+  const sectionsStatus = sections.querySelector('[data-sections-status]');
+  let sectionsAvailable = false;
+  let sectionState = { webEnabled: true, appStoreEnabled: true };
+  let savedPolicy;
   let savedProfile = '';
   let busy = false;
 
@@ -181,6 +207,7 @@ export function mountDeviceControls(host, options) {
   }
 
   function renderPolicy(policy) {
+    savedPolicy = policy;
     const synchronized = Date.parse(policy.last_sync_at);
     let state = 'neverSynced';
     if (policy.apply_failed) state = 'rulesFailed';
@@ -197,7 +224,12 @@ export function mountDeviceControls(host, options) {
     settings.elements.profile.value = savedProfile;
     settings.elements.appRequests.checked = policy.app_requests_enabled === true;
     settings.elements.siteRequests.checked = policy.site_requests_enabled === true;
-    siteOption.disabled = siteOption.hidden = savedProfile === 'mp3';
+    sectionState = deviceSections(policy);
+    sectionsAvailable = typeof policy.web_enabled === 'boolean' && typeof policy.app_store_enabled === 'boolean';
+    sections.hidden = !sectionsAvailable;
+    sectionWeb.checked = sectionState.webEnabled;
+    sectionStore.checked = sectionState.appStoreEnabled;
+    siteOption.disabled = siteOption.hidden = !sectionState.webEnabled;
     if (siteOption.disabled && form.elements.kind.value === 'site') {
       form.elements.kind.value = 'app';
       form.elements.kind.dispatchEvent(new Event('change'));
@@ -270,7 +302,7 @@ export function mountDeviceControls(host, options) {
       busy = false;
       rules.removeAttribute('aria-busy');
       rules.querySelectorAll('button, input, select').forEach(element => { element.disabled = false; });
-      siteOption.disabled = savedProfile === 'mp3';
+      siteOption.disabled = !sectionState.webEnabled;
       updateProfileFields();
       updateExpiryField();
     }
@@ -293,11 +325,29 @@ export function mountDeviceControls(host, options) {
   }
 
   function updateProfileFields() {
-    const mp3 = settings.elements.profile.value === 'mp3';
-    settings.querySelector('[data-mp3-web]').hidden = !mp3;
-    settings.elements.siteRequests.disabled = busy || mp3;
-    if (mp3) settings.elements.siteRequests.checked = false;
+    const changedProfile = settings.elements.profile.value !== savedProfile;
+    const webEnabled = changedProfile ? settings.elements.profile.value !== 'mp3' : sectionState.webEnabled;
+    settings.querySelector('[data-mp3-web]').hidden = webEnabled;
+    settings.elements.siteRequests.disabled = busy || !webEnabled;
+    if (!webEnabled) settings.elements.siteRequests.checked = false;
+    sectionWeb.disabled = sectionStore.disabled = busy || changedProfile || !sectionsAvailable;
+    sections.querySelector('[data-sections-profile-hint]').hidden = !changedProfile;
   }
+
+  async function saveSections() {
+    if (busy || !sectionsAvailable) return;
+    const web = sectionWeb.checked, store = sectionStore.checked;
+    // Keep the last confirmed state visible until the service returns its policy.
+    sectionWeb.checked = sectionState.webEnabled;
+    sectionStore.checked = sectionState.appStoreEnabled;
+    sectionsStatus.textContent = copy('wait');
+    const saved = await runPolicy(() => api.saveDeviceSections(device.id, web, store));
+    if (!host.isConnected) return;
+    if (!saved && savedPolicy) renderPolicy(savedPolicy);
+    sectionsStatus.textContent = saved ? copy('sectionsSaved') : copy('retry');
+  }
+  sectionWeb.onchange = saveSections;
+  sectionStore.onchange = saveSections;
 
   settings.elements.profile.onchange = () => {
     if (!savedProfile && settings.elements.profile.value) {
