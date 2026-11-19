@@ -1101,5 +1101,68 @@ const overflowExtra = 'com.example.overflow';
 await assert.rejects(() => prepareUsb(usbPendingId, 'qin', usbMp3.concat(overflowExtra), usbBaseline.concat(overflowExtra)), /DEVICE_RULE_LIMIT/);
 assert.deepEqual(persistedPolicy(await adminPolicy(usbPendingId)), persistedPolicy(beforeUsbLimit));
 
+// Reproduce the live Android 6.0 compatibility bridge without restoring the
+// superseded account-list recovery UI or bypassing the current confirmation wrapper.
+await db.exec('reset role');
+const legacyBridgeMigration = '20261119155142_legacy_android_code_compatibility.sql';
+await loadMigration(legacyBridgeMigration);
+await loadMigration(legacyBridgeMigration);
+const activateLegacyBridge = (code, address = email, number = phone) => scalar(
+  'select public.yd_activate_app_code($1,$2,$3)', [code, address, number]
+);
+await act('authenticated', adminA);
+const legacyBridgeId = (await register(null, 'fixture-legacy-bridge')).device_id;
+await act('authenticated', owner);
+await scalar('select public.set_device_configured($1,true)', [legacyBridgeId]);
+await act('authenticated', adminA);
+const initialBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1,$2,$3)',
+  [legacyBridgeId, email, phone]);
+await act('anon');
+const initialBridgeSession = await redeem(initialBridgeCode.code);
+await act('authenticated', adminA);
+const compatibleBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1)', [legacyBridgeId]);
+await act('anon', '', true, initialBridgeSession.app_token);
+await assert.rejects(() => activateLegacyBridge(compatibleBridgeCode.code, 'different@example.invalid'), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => activateLegacyBridge(compatibleBridgeCode.code, email, '+33123456780'), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => activateLegacyBridge('not-a-code'), /INVALID_ACCOUNT_CODE/);
+assert.equal((await access(initialBridgeSession.app_token)).account.id, initialBridgeSession.account.id);
+const bridgedSession = await activateLegacyBridge(compatibleBridgeCode.code.toLowerCase(), ' ' + email.toUpperCase() + ' ', phone);
+assert.equal(bridgedSession.account.id, initialBridgeSession.account.id);
+assert.equal(bridgedSession.device_id, legacyBridgeId);
+assert.match(bridgedSession.app_token, /^[a-f0-9]{64}$/);
+assert.match(bridgedSession.token, /^[a-f0-9]{64}$/);
+await assert.rejects(() => activateLegacyBridge(compatibleBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => redeem(compatibleBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => access(initialBridgeSession.app_token), /APP_ACCESS_DENIED/);
+await act('anon', '', true, bridgedSession.app_token);
+await phonePolicy(bridgedSession.token);
+await act('authenticated', adminA);
+const confirmedBridge = await scalar('select public.yd_admin_device_enrollment($1)', [legacyBridgeId]);
+assert.equal(confirmedBridge.redeemed_activation_id, compatibleBridgeCode.activation_id);
+// Expiry and suspension are still checked by the modern redemption path.
+const expiredBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1)', [legacyBridgeId]);
+await db.exec('reset role');
+await db.query("update private.yd_pending_app_activation set expires_at=now()-interval '1 second' where device_id=$1", [legacyBridgeId]);
+await act('anon');
+await assert.rejects(() => activateLegacyBridge(expiredBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await act('authenticated', adminA);
+const suspendedBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1)', [legacyBridgeId]);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,false)', [adminA]);
+await act('anon');
+await assert.rejects(() => activateLegacyBridge(suspendedBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,true)', [adminA]);
+// The original pairing endpoint remains compatible with the old application.
+await act('authenticated', adminA);
+const oldBridgePairing = await scalar('select public.yd_create_pairing($1)', [legacyBridgeId]);
+await act('anon');
+const oldBridgeSession = await activateLegacyBridge(oldBridgePairing);
+assert.equal(oldBridgeSession.device_id, legacyBridgeId);
+assert.equal(oldBridgeSession.account.email, email);
+await assert.rejects(() => activateLegacyBridge(oldBridgePairing), /INVALID_ACCOUNT_CODE/);
+await act('anon', '', true, oldBridgeSession.app_token);
+await phonePolicy(oldBridgeSession.token);
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
