@@ -550,3 +550,15 @@
   font-weight: 700;
   letter-spacing: .12em;
 }
+
+.device-section-settings {
+  margin-block: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--soft, #f8f6ff);
+}
+.device-section-settings legend { font-size: 14px; font-weight: 650; padding-inline: 5px; }
+.device-section-settings .device-check { margin-block: 10px; font-size: 14px; }
+.device-section-settings p { margin-block: 10px 0; font-size: 13px; }
+.device-section-settings [data-sections-status]:empty { display: none; }

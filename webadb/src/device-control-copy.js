@@ -1,6 +1,15 @@
 const locales = ['en', 'fr', 'he', 'yi'];
 
 const copy = {
+  sectionsVersion: ['Requires YiDream 6.5 or later on the phone.', 'Nécessite YiDream 6.5 ou une version ultérieure sur le téléphone.', 'נדרשת YiDream 6.5 או גרסה חדשה יותר בטלפון.', 'דאַרף YiDream 6.5 אָדער נײַער אויפֿן טעלעפֿאָן.'],
+  visibleSections: ['Visible sections in the app', 'Sections visibles dans l’app', 'אזורים גלויים באפליקציה', 'זעעוודיקע טיילן אין דער אַפּ'],
+  webSection: ['Websites', 'Sites web', 'אתרים', 'וועבזײַטן'],
+  storeSection: ['App store', 'Boutique d’applications', 'חנות האפליקציות', 'אַפּ־קראָם'],
+  sectionsHint: ['Each switch saves immediately for this phone. Existing app and website rules still apply.', 'Chaque option s’enregistre immédiatement pour ce téléphone. Les règles des applications et des sites restent appliquées.', 'כל מתג נשמר מיד לטלפון זה. כללי האפליקציות והאתרים עדיין חלים.', 'יעדער באַשטימונג ווערט גלײַך געראַטעוועט פֿאַר דעם טעלעפֿאָן. די כּללים פֿאַר אַפּס און וועבזײַטן בלײַבן גילטיק.'],
+  saveProfileFirst: ['Save the selected profile before changing its visible sections.', 'Enregistrez le profil choisi avant de modifier ses sections visibles.', 'שמרו את הפרופיל שנבחר לפני שינוי האזורים הגלויים.', 'ראַטעוועט דעם אויסגעקליבענעם פּראָפֿיל פֿאַרן ענדערן זײַנע זעעוודיקע טיילן.'],
+  sectionsSaved: ['Sections saved. The phone receives them when it synchronizes.', 'Sections enregistrées. Le téléphone les reçoit à sa prochaine synchronisation.', 'האזורים נשמרו. הטלפון יקבל אותם בסנכרון הבא.', 'די טיילן זענען געראַטעוועט. דער טעלעפֿאָן באַקומט זיי בײַם קומענדיקן סינקראָניזירן.'],
+  webSectionDisabled: ['Websites are hidden for this phone. An administrator can re-enable them here.', 'Les sites web sont masqués pour cet appareil. Un administrateur peut les réactiver ici.', 'האתרים מוסתרים במכשיר זה. מנהל יכול להפעיל אותם מחדש כאן.', 'וועבזײַטן זענען באַהאַלטן פֿאַר דעם דיווייס. אַ פֿאַרוואַלטער קען זיי דאָ ווידער אַקטיווירן.'],
+
   rulesSection: ['Apps and websites', 'Applications et sites', 'אפליקציות ואתרים', 'אַפּס און וועבזײַטן'],
   clientSection: ['Assigned client', 'Client associé', 'לקוח משויך', 'צוגעטיילטער קליענט'],
   bulkSection: ['Other devices', 'Autres appareils', 'מכשירים אחרים', 'אַנדערע דיווייסעס'],
