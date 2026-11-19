@@ -42,8 +42,10 @@ Si tu publies sous un autre nom de dépôt, ajoute son chemin dans `allowedSites
 
 ```bash
 cd webadb
-npm install
-npm run dev     # http://localhost:5173 (le verrou d'origine est levé sur localhost)
+npm ci
+npm run dev     # http://127.0.0.1:5173
 ```
+
+La compilation utilise esbuild et conserve les trois entrées du site, dont `/admin/`. `npm run build` génère `webadb/dist` et `npm run preview` sert cet aperçu sur le port 4173. Le serveur local reconstruit les modules JavaScript et CSS. Après une modification des pages HTML ou des fichiers publics, relancez-le. Les contrôles de connexion restent actifs.
 
 Windows : WebUSB exige de remplacer le pilote USB du téléphone par WinUSB avec Zadig (détails affichés dans l'onglet Connect).

@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { managedChromeControl, normalizeRuleTarget, normalizeSiteExpiry } from '../src/device-controls.js';
+import { normalizeRuleTarget, normalizeSiteExpiry, deviceSections } from '../src/device-controls.js';
 import { YiDreamAdb } from '../src/adb.js';
+import { enrollmentProgress } from '../src/device-enrollment.js';
+
+test('activation confirmation matches the issued attempt and a subsequent phone sync', () => {
+  const attempt = { id: 'current-attempt' };
+  const oldSync = '2026-11-12T10:00:00Z';
+  assert.equal(enrollmentProgress({ pending_activation_id: attempt.id, last_sync_at: oldSync }, attempt), 'enrollmentWaiting');
+  assert.equal(enrollmentProgress({ redeemed_activation_id: 'other', last_sync_at: oldSync }, attempt), 'enrollmentReplaced');
+  assert.equal(enrollmentProgress({ redeemed_activation_id: attempt.id, last_sync_at: null }, attempt), 'enrollmentRedeemed');
+  assert.equal(enrollmentProgress({ redeemed_activation_id: attempt.id, last_sync_at: oldSync }, attempt), 'enrollmentSynced');
+});
 
 test('site rules are canonical domains and reject ambiguous or unsafe URLs', () => {
   assert.equal(normalizeRuleTarget('site', 'https://Example.Org./some/path'), 'example.org');
@@ -69,4 +80,14 @@ test('USB errors do not disclose activation codes and replaced connections fail'
     return { exitCode: 0, out: 'Status: ok' };
   };
   await assert.rejects(usb.sendActivationCode(activationCode, 'phone-a'), /NOT_CONNECTED/);
+});
+
+
+test('MP3 sections inherit closed defaults and accept only explicit boolean exceptions', () => {
+  assert.deepEqual(deviceSections({device_profile:'mp3'}), {webEnabled:false,appStoreEnabled:false});
+  assert.deepEqual(deviceSections({device_profile:'qin'}), {webEnabled:true,appStoreEnabled:true});
+  assert.deepEqual(deviceSections({}), {webEnabled:true,appStoreEnabled:true});
+  assert.deepEqual(deviceSections({device_profile:'mp3',web_enabled:true,app_store_enabled:false}), {webEnabled:true,appStoreEnabled:false});
+  assert.deepEqual(deviceSections({device_profile:'mp3',web_enabled:'true',app_store_enabled:1}), {webEnabled:false,appStoreEnabled:false});
+  assert.deepEqual(deviceSections({device_profile:'qin',web_enabled:false,app_store_enabled:false}), {webEnabled:false,appStoreEnabled:false});
 });

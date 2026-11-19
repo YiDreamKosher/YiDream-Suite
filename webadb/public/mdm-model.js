@@ -10,6 +10,22 @@ export function deviceLabel(device,clients){const owner=clients.find(x=>x.id===d
 export function matchesRequest(request,device,query,filter){return(filter==='all'||request.status===filter)&&`${request.package_name || request.site_url || ''} ${device}`.toLocaleLowerCase('fr').includes(query.trim().toLocaleLowerCase('fr'));}
 export function releaseReady(app){return /^https:\/\//.test(app.apk_url||'')&&/^[0-9a-f]{64}$/i.test(app.sha256||'')&&Number.isSafeInteger(Number(app.version_code))&&Number(app.version_code)>0;}
 
+export function catalogStatus(app) {
+  if (!app.enabled) return 'hidden';
+  return releaseReady(app) ? 'available' : 'preparing';
+}
+
+export function catalogSections(apps, query = '', status = 'all') {
+  const search = query.trim().toLocaleLowerCase('fr');
+  const visible = apps.filter(app => (status === 'all' || catalogStatus(app) === status) &&
+    [app.name, app.package_name, app.description].some(value =>
+      String(value || '').toLocaleLowerCase('fr').includes(search)));
+  return [
+    { key: 'base', title: 'Applications de base', apps: visible.filter(app => app.is_base) },
+    { key: 'selection', title: 'Votre sélection', apps: visible.filter(app => !app.is_base) }
+  ].filter(section => section.apps.length);
+}
+
 
 export function isDeviceId(value) {
   return /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
