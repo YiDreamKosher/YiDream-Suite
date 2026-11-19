@@ -30,10 +30,10 @@ test('the pre-transfer manifest URL is narrowly mapped to the new official host 
  for(const apkUrl of [LEGACY_APK_URL+'?x=1',APK_URL+'#x',APK_URL.replace('https:','http:')]){const bad=server({...manifest,apkUrl});await assert.rejects(()=>fetchCurrentApk(bad.fetcher,webcrypto));assert.equal(bad.calls.length,1);}
 });
 
-test('profile setup requires release version 23 before downloading or installing its APK', async () => {
-  const outdated = server({ ...manifest, versionCode: 22 });
-  await assert.rejects(fetchCurrentApk(outdated.fetcher, webcrypto, 23), /PROFILE_UPDATE_REQUIRED/);
+test('profile setup requires release version 26 before downloading or installing its APK', async () => {
+  const outdated = server({ ...manifest, versionCode: 25 });
+  await assert.rejects(fetchCurrentApk(outdated.fetcher, webcrypto, 26), /PROFILE_UPDATE_REQUIRED/);
   assert.deepEqual(outdated.calls.map(call => call.url), [MANIFEST_URL]);
-  const supported = server({ ...manifest, versionCode: 23 });
-  assert.equal((await fetchCurrentApk(supported.fetcher, webcrypto, 23)).versionCode, 23);
+  const supported = server({ ...manifest, versionCode: 26 });
+  assert.equal((await fetchCurrentApk(supported.fetcher, webcrypto, 26)).versionCode, 26);
 });

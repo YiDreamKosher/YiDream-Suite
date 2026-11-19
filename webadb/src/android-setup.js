@@ -45,11 +45,11 @@ export function phoneConfiguration(packages, extraText, material) {
   };
 }
 
-export function phoneProfileConfiguration(profile, installed, extraText, material, requestId = crypto.randomUUID()) {
+export function phoneProfileConfiguration(profile, installed, extraText, material, requestId = crypto.randomUUID(), selected = null) {
   return {
     ...phoneConfiguration([], '', material),
     app_profile: profile,
     profile_request_id: requestId,
-    allowed_packages: profileAllowList(profile, installed, extraText)
+    allowed_packages: profileAllowList(profile, installed, extraText, selected)
   };
 }

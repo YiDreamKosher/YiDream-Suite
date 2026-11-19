@@ -486,5 +486,620 @@ assert.equal(await siteRequest(nextPhone.token, dailyRequest), undefined);
 await act('authenticated', adminA);
 await assert.rejects(() => reviewSite(staleSite.id, 'approved'), /SITE_REQUEST_NOT_AVAILABLE/);
 
+// Match the provisioning code format without using any production key material.
+await db.exec('reset role');
+await db.exec(`
+  create function extensions.hmac(data bytea, key bytea, algorithm text) returns bytea
+  language sql immutable as $$ select sha256($1 || $2) $$;
+`);
+await loadMigration('20261008000000_android_admin_unlock_key.sql');
+await loadMigration('20261112160453_android_owner_maintenance_code.sql');
+const maintenanceCode = () => scalar('select public.get_android_maintenance_code()');
+
+await act('anon');
+await assert.rejects(maintenanceCode, /permission denied/);
+await act('authenticated', customer);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+assert.ok((await scalar('select public.get_android_unlock_material()')).intermediate_key);
+await act('authenticated', owner, false);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+
+await db.exec('reset role');
+await db.query("update auth.sessions set not_after = now() - interval '1 second' where id = $1", [owner]);
+await act('authenticated', owner);
+await assert.rejects(maintenanceCode, /APP_ACCESS_DENIED/);
+await db.exec('reset role');
+await db.query('update auth.sessions set not_after = null where id = $1', [owner]);
+await act('authenticated', owner);
+const [{ material, maintenance }] = (await db.query(
+  'select public.get_android_unlock_material() as material, public.get_android_maintenance_code() as maintenance'
+)).rows;
+assert.deepEqual(maintenance, { code: material.code, date: material.date });
+assert.match(maintenance.code, /^[0-9A-F]{6}$/);
+assert.match(maintenance.date, /^\d{4}-\d{2}-\d{2}$/);
+
+// USB delivery does not confirm activation. Only the exact redeemed attempt and
+// a report from its current credential can confirm synchronization.
+await db.exec('reset role');
+const enrollmentMigration = '20261112175239_confirm_device_activation.sql';
+await loadMigration(enrollmentMigration);
+await loadMigration(enrollmentMigration);
+const enrollmentStatus = (target = id) => scalar('select public.yd_admin_device_enrollment($1)', [target]);
+const issueEnrollment = (target = id, address = null, number = null) =>
+  scalar('select public.yd_admin_issue_device_activation($1,$2,$3)', [target, address, number]);
+
+await act('anon');
+await assert.rejects(() => enrollmentStatus(), /permission denied/);
+await assert.rejects(() => issueEnrollment(), /permission denied/);
+await act('authenticated', adminB);
+await assert.rejects(() => enrollmentStatus(), /DEVICE_NOT_AVAILABLE/);
+await assert.rejects(() => issueEnrollment(), /DEVICE_NOT_AVAILABLE/);
+assert.equal((await enrollmentStatus(deviceB)).can_issue, false);
+await assert.rejects(() => issueEnrollment(deviceB), /ACCOUNT_RECOVERY_UNAVAILABLE/);
+await act('authenticated', adminA);
+assert.equal((await enrollmentStatus()).state, 'linked');
+assert.equal((await enrollmentStatus()).needs_contact, false);
+const superseded = await issueEnrollment();
+const recovery = await issueEnrollment(id, 'ignored@example.invalid', '+33123456780');
+assert.notEqual(recovery.activation_id, superseded.activation_id);
+const beforeRedemption = await enrollmentStatus();
+assert.equal(beforeRedemption.pending_activation_id, recovery.activation_id);
+assert.equal(beforeRedemption.redeemed_activation_id, null);
+assert.equal(beforeRedemption.code, undefined);
+await act('anon', '', true, nextPhone.app_token);
+assert.equal((await access(nextPhone.app_token)).account.id, nextAccount.id);
+await assert.rejects(() => redeem(superseded.code), /INVALID_ACCOUNT_CODE/);
+const recoveredPhone = await redeem(recovery.code);
+assert.equal(recoveredPhone.device_id, id);
+assert.equal(recoveredPhone.account.id, nextAccount.id);
+await assert.rejects(() => access(nextPhone.app_token), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA);
+const receipt = await enrollmentStatus();
+assert.equal(receipt.pending_activation_id, null);
+assert.equal(receipt.redeemed_activation_id, recovery.activation_id);
+assert.equal(receipt.last_sync_at, null);
+await act('anon', '', true, recoveredPhone.app_token);
+const recoveredPolicy = await phonePolicyV2(recoveredPhone.token);
+await reportV2(recoveredPhone.token, recoveredPolicy.revision, true);
+await act('authenticated', adminA);
+assert.ok(Number.isFinite(Date.parse((await enrollmentStatus()).last_sync_at)));
+
+const fresh = await register(null, 'fixture-usb-enrollment-fresh');
+await assert.rejects(() => enrollmentStatus(fresh.device_id), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', owner);
+await scalar('select public.set_device_configured($1,true)', [fresh.device_id]);
+await act('authenticated', adminA);
+assert.equal((await enrollmentStatus(fresh.device_id)).state, 'unlinked');
+assert.equal((await enrollmentStatus(fresh.device_id)).needs_contact, true);
+await assert.rejects(() => issueEnrollment(fresh.device_id), /INVALID_CONTACT/);
+const firstActivation = await issueEnrollment(fresh.device_id, 'new-device@example.invalid', phone);
+await act('anon');
+const firstPhone = await redeem(firstActivation.code);
+assert.equal(firstPhone.device_id, fresh.device_id);
+await act('authenticated', adminA);
+assert.equal((await enrollmentStatus(fresh.device_id)).redeemed_activation_id, firstActivation.activation_id);
+
+// Fleet controls remain device-bound and every legacy submission path is gated.
+await db.exec('reset role');
+const fleetMigration = '20261112183018_fleet_device_controls.sql';
+await loadMigration(fleetMigration);
+await loadMigration(fleetMigration);
+const setControls = (deviceId, profile, apps, sites) => scalar(
+  'select public.yd_admin_set_device_controls($1,$2,$3,$4)', [deviceId, profile, apps, sites]
+);
+const setPermissions = (ids, apps, sites) => scalar(
+  'select public.yd_admin_set_request_permissions($1,$2,$3)', [ids, apps, sites]
+);
+const reviewScoped = (kind, requestId, decision, ids = null, all = false) => scalar(
+  "select public.yd_review_device_request($1,$2,$3,'',$4,$5)", [kind, requestId, decision, ids, all]
+);
+const freshRequestId = () => crypto.randomUUID();
+const requestLegacySite = (token, domain, requestId) => scalar(
+  "select public.yd_request_site($1,$2,'',$3)", [token, 'https://' + domain, requestId]
+);
+const requestPermanent = (token, domain, requestId) => scalar(
+  "select public.yd_request_site_change($1,$2,'',$3,true)", [token, 'https://' + domain, requestId]
+);
+const secondaryId = fresh.device_id;
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(id)).app_requests_enabled, false);
+assert.equal((await adminPolicy(id)).site_requests_enabled, false);
+const staging = await register(null, 'fixture-staged-mp3');
+assert.equal((await setControls(staging.device_id, 'mp3', false, false)).device_profile, 'mp3');
+await assert.rejects(() => setPermissions([staging.device_id], true, null), /CONFIGURED_DEVICE_REQUIRED/);
+await assert.rejects(() => setControls(deviceB, 'qin', false, false), /DEVICE_NOT_AVAILABLE/);
+const initialPermissions = await adminPolicy(id);
+await assert.rejects(() => setPermissions([id, deviceB], true, null), /DEVICE_NOT_AVAILABLE/);
+assert.equal((await adminPolicy(id)).revision, initialPermissions.revision);
+assert.equal(await setPermissions([id, secondaryId, id], null, true), 2);
+
+await act('anon', '', true, recoveredPhone.app_token);
+await assert.rejects(() => setControls(id, 'qin', true, true), /permission denied/);
+await assert.rejects(() => requestApp(recoveredPhone.token, 'com.example.fleet', freshRequestId()), /REQUESTS_DISABLED/);
+assert.deepEqual(await requestPermanent(recoveredPhone.token, 'enabled.example', freshRequestId()), {});
+await act('authenticated', adminA);
+assert.equal(await setPermissions([id], true, false), 1);
+await act('anon', '', true, recoveredPhone.app_token);
+assert.deepEqual(await requestApp(recoveredPhone.token, 'com.example.fleet', freshRequestId()), {});
+await assert.rejects(() => requestPermanent(recoveredPhone.token, 'fleet.example', freshRequestId()), /REQUESTS_DISABLED/);
+await assert.rejects(() => requestLegacySite(recoveredPhone.token, 'fleet.example', freshRequestId()), /REQUESTS_DISABLED/);
+await assert.rejects(() => requestWindow(recoveredPhone.token, 'https://fleet.example', freshRequestId(), 24), /REQUESTS_DISABLED/);
+
+await act('anon', '', true, firstPhone.app_token);
+const priorSiteId = freshRequestId();
+await requestLegacySite(firstPhone.token, 'queued-before-mp3.example', priorSiteId);
+const priorSite = await siteRequest(firstPhone.token, priorSiteId);
+await act('authenticated', adminA);
+await setRule(secondaryId, 'site', 'existing.example', true);
+await setWindow(secondaryId, 'existing-window.example', new Date(Date.now() + 86_400_000).toISOString());
+assert.equal((await setControls(secondaryId, 'mp3', true, true)).site_requests_enabled, false);
+await assert.rejects(() => setPermissions([secondaryId], null, true), /MP3_WEB_DISABLED/);
+await assert.rejects(() => setRule(secondaryId, 'site', 'denied.example', true), /MP3_WEB_DISABLED/);
+await assert.rejects(() => reviewSite(priorSite.id, 'approved'), /MP3_WEB_DISABLED/);
+await act('anon', '', true, firstPhone.app_token);
+assert.equal((await phonePolicy(firstPhone.token)).device_profile, 'mp3');
+assert.deepEqual((await phonePolicy(firstPhone.token)).sites, {});
+assert.deepEqual((await phonePolicyV2(firstPhone.token)).temporary_sites, {});
+await assert.rejects(() => requestLegacySite(firstPhone.token, 'existing.example', freshRequestId()), /REQUESTS_DISABLED/);
+const mp3AppId = freshRequestId();
+assert.deepEqual(await requestApp(firstPhone.token, 'com.example.mp3', mp3AppId), {});
+await act('authenticated', adminA);
+const mp3App = (await adminAppRequests()).find(request => request.client_request_id === mp3AppId);
+assert.equal(await reviewScoped('app', mp3App.id, 'rejected'), 1);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.mp3'], undefined);
+const fleetApp = (await adminAppRequests()).find(request => request.package_name === 'com.example.fleet');
+await act('authenticated', owner);
+await assert.rejects(() => reviewScoped('app', fleetApp.id, 'approved', [deviceB]), /INVALID_REQUEST_SCOPE/);
+await act('authenticated', adminA);
+assert.equal((await adminAppRequests()).find(request => request.id === fleetApp.id).status, 'pending');
+assert.equal(await reviewScoped('app', fleetApp.id, 'approved', [secondaryId]), 2);
+assert.equal((await adminPolicy(id)).apps['com.example.fleet'], true);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.fleet'], true);
+// Legacy single-request review still revokes every grant owned by the decision.
+await reviewApp(fleetApp.id, 'revoked');
+assert.equal((await adminPolicy(id)).apps['com.example.fleet'], false);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.fleet'], false);
+await setRule(secondaryId, 'app', 'com.example.fleet', true);
+assert.equal(await reviewScoped('app', fleetApp.id, 'approved', null, true), 2);
+assert.equal(await reviewScoped('app', fleetApp.id, 'revoked'), 2);
+assert.equal((await adminPolicy(secondaryId)).apps['com.example.fleet'], true);
+
+await setControls(id, 'qin', true, true);
+await act('anon', '', true, recoveredPhone.app_token);
+const fleetSiteId = freshRequestId();
+await requestPermanent(recoveredPhone.token, 'fleet.example', fleetSiteId);
+const fleetSite = await siteRequest(recoveredPhone.token, fleetSiteId);
+assert.equal(fleetSite.requested_account_id, recoveredPhone.account.id);
+await act('authenticated', adminA);
+await assert.rejects(() => reviewScoped('site', fleetSite.id, 'approved', [secondaryId]), /MP3_WEB_DISABLED/);
+assert.equal(await reviewScoped('site', fleetSite.id, 'approved', null, true), 1);
+assert.equal((await adminPolicy(id)).sites['fleet.example'], true);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], undefined);
+assert.equal((await setControls(secondaryId, 'qin', true, true)).sites['existing.example'], true);
+assert.equal(await reviewScoped('site', fleetSite.id, 'revoked'), 1);
+assert.equal(await reviewScoped('site', fleetSite.id, 'approved', [secondaryId]), 2);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], true);
+// A direct rule on the destination takes precedence over a scoped decision.
+await setRule(secondaryId, 'site', 'fleet.example', false);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], false);
+assert.equal(await reviewScoped('site', fleetSite.id, 'revoked'), 1);
+assert.equal((await adminPolicy(secondaryId)).sites['fleet.example'], false);
+await act('authenticated', adminB);
+assert.equal((await adminPolicy(deviceB)).sites['fleet.example'], undefined);
+
+// A temporary approval shares the origin deadline without overwriting another
+// grant or promoting the destination's window to a permanent rule.
+await act('authenticated', adminA);
+await setRule(secondaryId, 'site', 'existing-window.example', false);
+await act('anon', '', true, recoveredPhone.app_token);
+const scopedWindowId = freshRequestId();
+const sharedDeadline = new Date(Date.now() + 172_800_000).toISOString();
+await requestWindow(recoveredPhone.token, 'https://shared-window.example', scopedWindowId, null, sharedDeadline);
+const scopedWindow = await siteRequest(recoveredPhone.token, scopedWindowId);
+await act('authenticated', adminA);
+assert.equal(await reviewScoped('site', scopedWindow.id, 'approved', null, true), 2);
+const secondaryWindowPolicy = await adminPolicy(secondaryId);
+assert.equal(secondaryWindowPolicy.sites['shared-window.example'], undefined);
+assert.equal(Date.parse(secondaryWindowPolicy.temporary_sites['shared-window.example']), Date.parse(sharedDeadline));
+assert.equal(secondaryWindowPolicy.temporary_sites['shared-window.example'],
+  (await adminPolicy(id)).temporary_sites['shared-window.example']);
+await act('anon', '', true, firstPhone.app_token);
+assert.equal((await phonePolicy(firstPhone.token)).sites['shared-window.example'], undefined);
+assert.equal((await report(firstPhone.token, secondaryWindowPolicy.revision, true)).applied_revision,
+  secondaryWindowPolicy.applied_revision);
+assert.equal((await reportV2(firstPhone.token, secondaryWindowPolicy.revision, true)).applied_revision,
+  secondaryWindowPolicy.revision);
+await act('authenticated', adminA);
+const separateDeadline = new Date(Date.now() + 86_400_000).toISOString();
+const overlappingWindow = await setWindow(secondaryId, 'shared-window.example', separateDeadline);
+assert.equal(Date.parse(overlappingWindow.temporary_sites['shared-window.example']), Date.parse(sharedDeadline));
+assert.equal(await reviewScoped('site', scopedWindow.id, 'revoked'), 2);
+assert.equal((await adminPolicy(id)).temporary_sites['shared-window.example'], undefined);
+assert.equal(Date.parse((await adminPolicy(secondaryId)).temporary_sites['shared-window.example']), Date.parse(separateDeadline));
+
+await act('anon', '', true, recoveredPhone.app_token);
+const scopedDailyId = freshRequestId();
+await requestWindow(recoveredPhone.token, 'https://scoped-day.example', scopedDailyId, 24);
+const scopedDaily = await siteRequest(recoveredPhone.token, scopedDailyId);
+await act('authenticated', adminA);
+assert.equal(await reviewScoped('site', scopedDaily.id, 'approved', [secondaryId]), 2);
+assert.equal((await adminPolicy(secondaryId)).temporary_sites['scoped-day.example'],
+  (await adminPolicy(id)).temporary_sites['scoped-day.example']);
+await db.exec('reset role');
+await db.query("update private.yd_scoped_request_grants set expires_at=now()-interval '1 second' where request_id=$1", [scopedDaily.id]);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(secondaryId)).temporary_sites['scoped-day.example'], undefined);
+assert.equal((await adminPolicy(secondaryId)).sites['scoped-day.example'], undefined);
+
+// Future shop publications require an approval on both the catalogue and the APK.
+await act('authenticated', adminA);
+await db.query(
+  "insert into public.yd_catalog(owner_id,name,package_name) values ($1,'Existing publication','com.example.existingcatalog')",
+  [adminA]
+);
+await db.exec('reset role');
+const catalogueMigration = '20261112183610_scope_new_catalog_apps.sql';
+await loadMigration(catalogueMigration);
+await loadMigration(catalogueMigration);
+const cataloguePackage = 'com.example.newcatalog';
+const cataloguePath = adminA + '/' + cataloguePackage + '/release.apk';
+await act('authenticated', adminA);
+await db.query(
+  "insert into public.yd_catalog(owner_id,name,package_name,storage_path,apk_url,sha256,version_code) values ($1,'New publication',$2,$3,'https://example.invalid/release.apk',repeat('a',64),1)",
+  [adminA, cataloguePackage, cataloguePath]
+);
+const hasCatalogue = (token, name) => scalar(
+  'select exists(select 1 from public.yd_device_catalog($1) where package_name=$2)', [token, name]
+);
+async function canReadCatalogueApk(phone) {
+  await act('anon', '', true, phone.app_token);
+  await db.query("select set_config('request.headers',$1,false)", [
+    JSON.stringify({ 'x-yidream-app-token': phone.app_token, 'x-yidream-device-token': phone.token })
+  ]);
+  return scalar('select public.yd_can_read_apk($1)', [cataloguePath]);
+}
+assert.equal(await canReadCatalogueApk(recoveredPhone), false);
+assert.equal(await hasCatalogue(recoveredPhone.token, cataloguePackage), false);
+assert.equal(await hasCatalogue(recoveredPhone.token, 'com.example.existingcatalog'), true);
+const catalogueRequestId = freshRequestId();
+await requestApp(recoveredPhone.token, cataloguePackage, catalogueRequestId);
+await act('authenticated', adminA);
+const catalogueRequest = (await adminAppRequests()).find(request => request.client_request_id === catalogueRequestId);
+await reviewScoped('app', catalogueRequest.id, 'approved');
+assert.equal(await canReadCatalogueApk(recoveredPhone), true);
+assert.equal(await hasCatalogue(recoveredPhone.token, cataloguePackage), true);
+assert.equal(await canReadCatalogueApk(firstPhone), false);
+assert.equal(await hasCatalogue(firstPhone.token, cataloguePackage), false);
+await act('authenticated', adminA);
+await reviewScoped('app', catalogueRequest.id, 'revoked');
+assert.equal(await canReadCatalogueApk(recoveredPhone), false);
+
+// MP3 sections are closed by default and an exception is scoped to one device.
+await db.exec('reset role');
+const sectionsMigration = '20261119144553_mp3_section_access.sql';
+await loadMigration(sectionsMigration);
+await loadMigration(sectionsMigration);
+assert.equal(await scalar("select has_function_privilege('anon','public.set_yidream_device_sections(uuid,boolean,boolean)','execute')"), false);
+assert.equal(await scalar("select has_function_privilege('authenticated','private.yd_web_enabled(uuid)','execute')"), false);
+const setSections = (deviceId, web, store) => scalar(
+  'select public.set_yidream_device_sections($1,$2,$3)', [deviceId, web, store]
+);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(id)).web_enabled, true);
+assert.equal((await adminPolicy(id)).app_store_enabled, true);
+await setControls(secondaryId, 'mp3', true, true);
+const closedMp3 = await adminPolicy(secondaryId);
+assert.equal(closedMp3.web_enabled, false);
+assert.equal(closedMp3.app_store_enabled, false);
+assert.equal(closedMp3.site_requests_enabled, false);
+await assert.rejects(() => setSections(staging.device_id, true, true), /CONFIGURED_DEVICE_REQUIRED/);
+await assert.rejects(() => setSections(deviceB, true, true), /DEVICE_NOT_AVAILABLE/);
+await assert.rejects(() => setSections(secondaryId, null, true), /INVALID_DEVICE_CONTROLS/);
+await act('anon');
+await assert.rejects(() => setSections(secondaryId, true, true), /permission denied/);
+await act('authenticated', customer);
+await assert.rejects(() => setSections(secondaryId, true, true), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA, false);
+await assert.rejects(() => setSections(secondaryId, true, true), /APP_ACCESS_DENIED/);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,false)', [adminA]);
+await act('authenticated', adminA);
+await assert.rejects(() => setSections(secondaryId, true, true), /APP_ACCESS_DENIED/);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,true)', [adminA]);
+await act('authenticated', adminA);
+const openedMp3 = await setSections(secondaryId, true, false);
+assert.equal(openedMp3.web_enabled, true);
+assert.equal(openedMp3.app_store_enabled, false);
+assert.equal(openedMp3.site_requests_enabled, false);
+assert.equal(openedMp3.revision, closedMp3.revision + 1);
+assert.equal((await setSections(secondaryId, true, false)).revision, openedMp3.revision);
+await db.exec('reset role');
+await loadMigration(sectionsMigration);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(secondaryId)).web_enabled, true);
+assert.equal((await adminPolicy(secondaryId)).revision, openedMp3.revision);
+await assert.rejects(() => setRule(id, 'site', 'still-invalid@host.example', true), /INVALID_DEVICE_RULE/);
+await setRule(secondaryId, 'site', 'mp3-exception.example', true);
+await setWindow(secondaryId, 'mp3-trip.example', new Date(Date.now() + 86_400_000).toISOString());
+assert.equal(await setPermissions([secondaryId], null, true), 1);
+await act('anon', '', true, firstPhone.app_token);
+const mp3AllowedPolicy = await phonePolicyV2(firstPhone.token);
+assert.equal(mp3AllowedPolicy.web_enabled, true);
+assert.equal(mp3AllowedPolicy.sites['mp3-exception.example'], true);
+assert.ok(mp3AllowedPolicy.temporary_sites['mp3-trip.example']);
+assert.equal(mp3AllowedPolicy.sites['not-approved.example'], undefined);
+const exceptionRequestId = freshRequestId();
+await requestPermanent(firstPhone.token, 'mp3-request.example', exceptionRequestId);
+const exceptionRequest = await siteRequest(firstPhone.token, exceptionRequestId);
+await act('authenticated', adminA);
+await reviewScoped('site', exceptionRequest.id, 'approved');
+assert.equal((await adminPolicy(secondaryId)).sites['mp3-request.example'], true);
+// All-device scopes include an MP3 only after its administrator exception.
+await act('anon', '', true, recoveredPhone.app_token);
+const exceptionScopeClientId = freshRequestId();
+await requestPermanent(recoveredPhone.token, 'mp3-scoped.example', exceptionScopeClientId);
+const exceptionScopeRequest = await siteRequest(recoveredPhone.token, exceptionScopeClientId);
+await act('authenticated', adminA);
+assert.equal(await reviewScoped('site', exceptionScopeRequest.id, 'approved', null, true), 2);
+assert.equal((await adminPolicy(secondaryId)).sites['mp3-scoped.example'], true);
+await reviewScoped('site', exceptionScopeRequest.id, 'revoked');
+await setRule(secondaryId, 'app', 'com.example.existingcatalog', true);
+// Store visibility is independent from the catalogue and already authorized updates.
+await act('anon', '', true, firstPhone.app_token);
+const beforeHiddenCatalogue = await hasCatalogue(firstPhone.token, 'com.example.existingcatalog');
+assert.equal(beforeHiddenCatalogue, true);
+await act('authenticated', adminA);
+await setSections(secondaryId, true, true);
+await act('anon', '', true, firstPhone.app_token);
+assert.equal(await hasCatalogue(firstPhone.token, cataloguePackage), false);
+await act('authenticated', adminA);
+await setSections(secondaryId, true, false);
+await act('anon', '', true, firstPhone.app_token);
+assert.equal(await hasCatalogue(firstPhone.token, 'com.example.existingcatalog'), beforeHiddenCatalogue);
+await act('authenticated', adminA);
+await setSections(secondaryId, false, true);
+const closedAgain = await adminPolicy(secondaryId);
+assert.equal(closedAgain.web_enabled, false);
+assert.equal(closedAgain.app_store_enabled, true);
+assert.equal(closedAgain.site_requests_enabled, false);
+await reviewScoped('site', exceptionRequest.id, 'revoked');
+await assert.rejects(() => reviewScoped('site', exceptionRequest.id, 'approved'), /WEB_SECTION_DISABLED/);
+await assert.rejects(() => setRule(secondaryId, 'site', 'forbidden.example', true), /WEB_SECTION_DISABLED/);
+await assert.rejects(() => setWindow(secondaryId, 'forbidden.example', new Date(Date.now() + 86_400_000).toISOString()), /WEB_SECTION_DISABLED/);
+await assert.rejects(() => setPermissions([secondaryId], null, true), /WEB_SECTION_DISABLED/);
+await act('anon', '', true, firstPhone.app_token);
+assert.deepEqual((await phonePolicy(firstPhone.token)).sites, {});
+assert.deepEqual((await phonePolicyV2(firstPhone.token)).temporary_sites, {});
+await assert.rejects(() => requestPermanent(firstPhone.token, 'forbidden.example', freshRequestId()), /REQUESTS_DISABLED/);
+await act('authenticated', adminA);
+await setControls(secondaryId, 'qin', true, true);
+assert.equal((await adminPolicy(secondaryId)).web_enabled, true);
+assert.equal((await adminPolicy(secondaryId)).app_store_enabled, true);
+await setSections(secondaryId, true, true);
+await setControls(secondaryId, 'mp3', true, true);
+assert.equal((await adminPolicy(secondaryId)).web_enabled, false);
+assert.equal((await adminPolicy(secondaryId)).app_store_enabled, false);
+await setSections(id, false, true);
+await assert.rejects(() => setRule(id, 'site', 'also-disabled.example', true), /WEB_SECTION_DISABLED/);
+await setSections(id, true, true);
+
+// Official Zemer updates use the existing shared catalogue without granting app
+// access or opening the hidden MP3 store. Android checks installed identity,
+// version, APK digest and signing continuity before submitting an update.
+await act('authenticated', adminA);
+const beforeZemerPolicy = await adminPolicy(id);
+const beforeZemerMp3Policy = await adminPolicy(secondaryId);
+const persistedPolicy = ({ server_time, ...policy }) => policy;
+assert.equal(beforeZemerPolicy.apps['com.jtech.zemer'], undefined);
+assert.equal(beforeZemerMp3Policy.app_store_enabled, false);
+await db.exec('reset role');
+const zemerMigration = '20261119150527_zemer_verified_update_catalog.sql';
+await loadMigration(zemerMigration);
+await loadMigration(zemerMigration);
+const officialZemer = (await db.query(
+  "select * from public.yd_catalog where package_name='com.jtech.zemer' and is_base"
+)).rows;
+assert.equal(officialZemer.length, 1);
+assert.equal(officialZemer[0].owner_id, owner);
+assert.equal(officialZemer[0].version_code, 41);
+assert.equal(officialZemer[0].version_name, '41');
+assert.equal(officialZemer[0].sha256, 'fdf0115f6ace608119c7dd57db62666d59ea8f8beb6465119848b9bd6d0a6edd');
+assert.equal(officialZemer[0].apk_url, 'https://github.com/ZemerTeam/zemer-app/releases/download/v41/app-release.apk');
+assert.equal(officialZemer[0].source_url, 'https://zemer.io/');
+assert.equal(officialZemer[0].requires_device_approval, true);
+await act('authenticated', adminA);
+assert.deepEqual(persistedPolicy(await adminPolicy(id)), persistedPolicy(beforeZemerPolicy));
+assert.deepEqual(persistedPolicy(await adminPolicy(secondaryId)), persistedPolicy(beforeZemerMp3Policy));
+// An administrator can read a shared publication but cannot alter it.
+assert.equal((await db.query(
+  "update public.yd_catalog set enabled=false where id=$1 returning id", [officialZemer[0].id]
+)).rows.length, 0);
+for (const phone of [recoveredPhone, firstPhone]) {
+  await act('anon', '', true, phone.app_token);
+  assert.equal(await hasCatalogue(phone.token, 'com.jtech.zemer'), true);
+}
+// Another shop receives exactly the same owner-verified release, not another
+// reseller's package with the same name.
+await act('authenticated', legacyCustomer);
+assert.equal(await hasCatalogue(legacyDevice.token, 'com.jtech.zemer'), true);
+await act('anon');
+await assert.rejects(() => hasCatalogue(recoveredPhone.token, 'com.jtech.zemer'), /APP_ACCESS_DENIED/);
+await assert.rejects(() => hasCatalogue('invalid', 'com.jtech.zemer'), /APP_ACCESS_DENIED/);
+// A device-specific deny remains authoritative. Merely publishing a base
+// release never grants a first install or removes an explicit app restriction.
+await act('authenticated', adminA);
+await setRule(secondaryId, 'app', 'com.jtech.zemer', false);
+assert.equal((await adminPolicy(secondaryId)).apps['com.jtech.zemer'], false);
+await db.exec('reset role');
+await loadMigration(zemerMigration);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(secondaryId)).apps['com.jtech.zemer'], false);
+await act('authenticated', owner);
+await db.query('update public.yd_catalog set enabled=false, version_code=42, version_name=$2 where id=$1',
+  [officialZemer[0].id, 'owner-published-newer-release']);
+await db.exec('reset role');
+await loadMigration(zemerMigration);
+const retainedZemer = (await db.query('select enabled,version_code,version_name from public.yd_catalog where id=$1',
+  [officialZemer[0].id])).rows[0];
+assert.deepEqual(retainedZemer, { enabled: false, version_code: 42, version_name: 'owner-published-newer-release' });
+await act('anon', '', true, firstPhone.app_token);
+assert.equal(await hasCatalogue(firstPhone.token, 'com.jtech.zemer'), false);
+await db.exec('reset role');
+await db.query('update public.yd_catalog set is_base=false where id=$1', [officialZemer[0].id]);
+await assert.rejects(() => loadMigration(zemerMigration), /ZEMER_CATALOG_CONFLICT/);
+await db.exec('rollback');
+await db.query('update public.yd_catalog set is_base=true,owner_id=$2 where id=$1', [officialZemer[0].id, adminB]);
+await assert.rejects(() => loadMigration(zemerMigration), /ZEMER_CATALOG_CONFLICT/);
+await db.exec('rollback');
+
+// USB preparation saves the exact selection before owner approval, without
+// opening a second path for device activation or APK installation.
+await db.exec('reset role');
+const usbProfileMigration = '20261119154116_usb_app_profile_preparation.sql';
+await loadMigration(usbProfileMigration);
+await loadMigration(usbProfileMigration);
+const usbBaseline = [
+  'com.android.calculator2', 'com.google.android.calculator',
+  'com.android.deskclock', 'com.google.android.deskclock',
+  'com.android.calendar', 'com.google.android.calendar',
+  'com.android.soundrecorder', 'com.google.android.apps.recorder',
+  'com.android.notes', 'com.android.notepad', 'com.google.android.keep',
+  'com.jtech.zemer', 'tfilon.tfilon', 'net.calj.android', 'com.rhmsoft.pulsar',
+  'fm.jewishmusic.application', 'com.waze', 'app.kosherscan.kosher_scan'
+];
+const usbMp3 = usbBaseline.filter(name => !['com.waze', 'app.kosherscan.kosher_scan', 'com.google.android.keep'].includes(name));
+const prepareUsb = (target, profile, allowed, managed = usbBaseline) => scalar(
+  'select public.yd_admin_set_usb_app_profile($1,$2,$3,$4)', [target, profile, allowed, managed]
+);
+assert.equal(await scalar("select has_function_privilege('anon','public.yd_admin_set_usb_app_profile(uuid,text,text[],text[])','execute')"), false);
+await act('authenticated', adminA);
+const usbPending = await register(null, 'fixture-usb-profile-pending');
+const usbPendingId = usbPending.device_id;
+assert.equal(usbPending.configuration_status, 'needs_configuration');
+await db.exec('reset role');
+const accountCounts = () => scalar(`select jsonb_build_object(
+  'accounts', (select count(*) from public.yd_app_accounts),
+  'links', (select count(*) from public.yd_device_links),
+  'pending_activations', (select count(*) from private.yd_pending_app_activation))`);
+const accountsBeforePreparation = await accountCounts();
+await act('anon');
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /permission denied/);
+await act('authenticated', customer);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA, false);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await db.exec('reset role');
+await db.query("update auth.sessions set not_after=now()-interval '1 second' where id=$1", [adminA]);
+await act('authenticated', adminA);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await db.exec('reset role');
+await db.query('update auth.sessions set not_after=null where id=$1', [adminA]);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,false)', [adminA]);
+await act('authenticated', adminA);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,true)', [adminA]);
+await act('authenticated', adminB);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', adminA);
+await assert.rejects(() => prepareUsb(usbPendingId, 'smartphone', usbMp3), /USB_PROFILE_INVALID_TYPE/);
+await assert.rejects(() => prepareUsb(usbPendingId, null, usbMp3), /USB_PROFILE_INVALID_TYPE/);
+for (const [allowed, managed] of [
+  [null, usbBaseline], [usbMp3, null], [usbMp3, usbBaseline.concat(usbBaseline[0])],
+  [[], usbBaseline.filter(name => name !== 'com.jtech.zemer')],
+  [['com.example.notmanaged'], usbBaseline], [[], usbBaseline.concat('bad;package')],
+  [[], usbBaseline.concat(null)], [[], usbBaseline.concat(Array.from({ length: 83 }, (_, n) => 'com.example.limit' + n))]
+]) await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', allowed, managed), /USB_PROFILE_INVALID_PACKAGES/);
+await assert.rejects(() => db.query(`select public.yd_admin_set_usb_app_profile(
+  $1,'mp3',array[array['com.jtech.zemer']],$2)`, [usbPendingId, usbBaseline]), /USB_PROFILE_INVALID_PACKAGES/);
+for (const forbidden of ['com.yidream.mdm', 'com.android.settings', 'com.android.systemui',
+  'com.google.android.packageinstaller', 'com.android.vending', 'com.aurora.store', 'com.android.chrome']) {
+  await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3.concat(forbidden), usbBaseline.concat(forbidden)),
+    /USB_PROFILE_APP_PROTECTED/);
+}
+const usbExtra = 'com.example.usbextra';
+const preparedUsb = await prepareUsb(usbPendingId, 'mp3', usbMp3.concat(usbExtra), usbBaseline.concat(usbExtra));
+assert.equal(preparedUsb.revision, 1);
+assert.equal(preparedUsb.device_profile, 'mp3');
+assert.equal(preparedUsb.web_enabled, false);
+assert.equal(preparedUsb.app_store_enabled, false);
+assert.equal(preparedUsb.apps[usbExtra], true);
+assert.equal(preparedUsb.apps['com.jtech.zemer'], true);
+assert.equal(preparedUsb.apps['com.google.android.keep'], false);
+assert.equal(preparedUsb.apps['com.waze'], false);
+assert.equal((await prepareUsb(usbPendingId, 'mp3', usbMp3.concat(usbExtra), usbBaseline.concat(usbExtra))).revision, 1);
+await assert.rejects(() => setRule(usbPendingId, 'app', 'com.example.any', true), /CONFIGURED_DEVICE_REQUIRED/);
+await assert.rejects(() => issue(usbPendingId), /CONFIGURED_DEVICE_REQUIRED/);
+assert.equal(await scalar('select configuration_status from public.devices where id=$1', [usbPendingId]), 'needs_configuration');
+const removedUsbExtra = await prepareUsb(usbPendingId, 'mp3', usbMp3);
+assert.equal(removedUsbExtra.revision, 2);
+assert.equal(removedUsbExtra.apps[usbExtra], false);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3.concat(usbExtra), usbBaseline.concat(usbExtra)), /USB_PROFILE_APP_DENIED/);
+assert.deepEqual(persistedPolicy(await adminPolicy(usbPendingId)), persistedPolicy(removedUsbExtra));
+// A historical database record alone is insufficient; the USB registration is
+// required even for its owning administrator.
+await assert.rejects(() => prepareUsb(deviceB, 'mp3', usbMp3), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', adminB);
+await assert.rejects(() => prepareUsb(deviceB, 'mp3', usbMp3), /USB_REGISTRATION_REQUIRED/);
+await db.exec('reset role');
+assert.deepEqual(await accountCounts(), accountsBeforePreparation);
+// After an independent owner approval, the same atomic operation still respects
+// explicit denies and preserves unrelated rules and same-profile exceptions.
+await act('authenticated', owner);
+await scalar('select public.set_device_configured($1,true)', [usbPendingId]);
+await act('authenticated', adminA);
+await setSections(usbPendingId, true, false);
+await setControls(usbPendingId, 'mp3', true, true);
+await setRule(usbPendingId, 'app', 'com.example.unrelated', true);
+await setRule(usbPendingId, 'app', 'com.example.remote_denied', false);
+const configuredUsb = await adminPolicy(usbPendingId);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3.concat('com.example.remote_denied'),
+  usbBaseline.concat('com.example.remote_denied')), /USB_PROFILE_APP_DENIED/);
+await db.exec('reset role');
+await db.query(`insert into private.yd_scoped_request_grants(request_kind,request_id,device_id,target) values
+  ('app',gen_random_uuid(),$1,'com.google.android.keep'),('app',gen_random_uuid(),$1,'com.example.scoped_unrelated')`, [usbPendingId]);
+await act('authenticated', adminA);
+const preparedConfiguredUsb = await prepareUsb(usbPendingId, 'mp3', usbMp3);
+assert.equal(preparedConfiguredUsb.revision, configuredUsb.revision + 1);
+assert.equal(preparedConfiguredUsb.web_enabled, true);
+assert.equal(preparedConfiguredUsb.app_store_enabled, false);
+assert.equal(preparedConfiguredUsb.app_requests_enabled, true);
+assert.equal(preparedConfiguredUsb.site_requests_enabled, true);
+assert.equal(preparedConfiguredUsb.apps['com.example.unrelated'], true);
+assert.equal(preparedConfiguredUsb.apps['com.example.remote_denied'], false);
+assert.equal(preparedConfiguredUsb.apps['com.google.android.keep'], false);
+assert.equal(preparedConfiguredUsb.apps['com.example.scoped_unrelated'], true);
+const usbChangedToQin = await prepareUsb(usbPendingId, 'qin', usbMp3);
+assert.equal(usbChangedToQin.device_profile, 'qin');
+assert.equal(usbChangedToQin.web_enabled, true);
+assert.equal(usbChangedToQin.app_store_enabled, true);
+assert.equal(usbChangedToQin.apps['com.google.android.keep'], false);
+const usbChangedToMp3 = await prepareUsb(usbPendingId, 'mp3', usbMp3);
+assert.equal(usbChangedToMp3.web_enabled, false);
+assert.equal(usbChangedToMp3.app_store_enabled, false);
+assert.equal(usbChangedToMp3.site_requests_enabled, false);
+assert.equal(usbChangedToMp3.app_requests_enabled, true);
+await db.exec('reset role');
+assert.deepEqual(await accountCounts(), accountsBeforePreparation);
+await loadMigration(usbProfileMigration);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(usbPendingId)).revision, usbChangedToMp3.revision);
+// The combined policy is bounded too; rejecting an oversized result rolls back
+// profile, app selection, revision and managed-package metadata together.
+await db.exec('reset role');
+await db.query(`update private.yd_device_policy p set apps=p.apps || (
+  select jsonb_object_agg('com.example.fill' || n, true) from generate_series(1,
+    99-(select count(*)::integer from jsonb_object_keys(p.apps))) as n
+  ) where p.device_id=$1`, [usbPendingId]);
+await act('authenticated', adminA);
+const beforeUsbLimit = await adminPolicy(usbPendingId);
+const overflowExtra = 'com.example.overflow';
+await assert.rejects(() => prepareUsb(usbPendingId, 'qin', usbMp3.concat(overflowExtra), usbBaseline.concat(overflowExtra)), /DEVICE_RULE_LIMIT/);
+assert.deepEqual(persistedPolicy(await adminPolicy(usbPendingId)), persistedPolicy(beforeUsbLimit));
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');

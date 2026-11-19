@@ -11,7 +11,7 @@ function blocked(message){
   layer.style.cssText='position:fixed;inset:0;z-index:100000;display:grid;place-items:center;padding:22px;background:#f6f8fc;color:#102448;font:15px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
   layer.innerHTML='<section style="max-width:540px;width:100%;padding:28px;border:1px solid #dce5f2;border-radius:20px;background:#fff;box-shadow:0 18px 50px #1c3c7012"><h1 style="margin:0 0 8px;font-size:25px">Accès à YiDream Suite</h1><p id="accessMessage" style="color:#73819a"></p><a id="adminLink" style="display:inline-block;padding:10px 15px;border-radius:10px;background:#7257d6;color:#fff;text-decoration:none;font-weight:700">Ouvrir le portail administrateur</a></section>';
   layer.querySelector('#accessMessage').textContent=message;
-  const base=new URL(import.meta.env.BASE_URL,location.origin);
+  const base=new URL('./',location.href);
   layer.querySelector('#adminLink').href=new URL('admin/?login=1',base).href;
   document.body.append(layer);
 }
@@ -20,7 +20,7 @@ async function authorizeConfigurator(){
   if(!cloud.configured)throw new Error('La connexion Supabase n’est pas configurée.');
   const session=await cloud.session();
   if(!session){
-    const base=new URL(import.meta.env.BASE_URL,location.origin);
+    const base=new URL('./',location.href);
     location.replace(new URL('admin/?login=1',base).href);
     return false;
   }

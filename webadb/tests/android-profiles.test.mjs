@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { YiDreamAdb } from '../src/adb.js';
 import { CONFIG } from '../src/config.js';
 import { phoneProfileConfiguration } from '../src/android-setup.js';
-import { ANDROID_PROFILES, MAX_PROFILE_PACKAGES, profileAllowList, profileApps } from '../src/android-profiles.js';
+import { ANDROID_PROFILES, MAX_PROFILE_PACKAGES, profileAllowList, profileApps, profileManagedPackages, isProfileProtected } from '../src/android-profiles.js';
 
 const mp3Apps = [
-  'com.android.calculator2', 'com.android.deskclock', 'com.android.calendar', 'com.android.soundrecorder',
+  'com.android.calculator2', 'com.google.android.calculator', 'com.android.deskclock', 'com.google.android.deskclock',
+  'com.android.calendar', 'com.google.android.calendar', 'com.android.soundrecorder', 'com.google.android.apps.recorder',
+  'com.android.notes', 'com.android.notepad', 'com.google.android.keep',
   'com.jtech.zemer', 'tfilon.tfilon', 'net.calj.android', 'com.rhmsoft.pulsar', 'fm.jewishmusic.application'
 ];
 const requestId = 'a5d058ac-a16f-4e9d-af54-9a7204923695';
@@ -22,7 +24,8 @@ test('verified firmware packages stay authorized when detection is unavailable, 
   const installed = new Set(['com.android.calculator2', 'com.android.deskclock.fake', 'com.vendor.notes']);
   const apps = profileApps('mp3');
   assert.equal(apps.find(app => app.name === 'calculator').packageName, 'com.android.calculator2');
-  assert.equal(apps.find(app => app.name === 'notes').packageName, null);
+  assert.deepEqual(apps.find(app => app.name === 'notes').packageNames,
+    ['com.android.notes', 'com.android.notepad', 'com.google.android.keep']);
   assert.deepEqual(profileAllowList('mp3', installed, ' com.vendor.notes, com.jtech.zemer '),
     [...mp3Apps, 'com.vendor.notes']);
 });
@@ -88,4 +91,39 @@ test('profile confirmation waits for the exact nonce on the same connected devic
     return { exitCode: 0, out: JSON.stringify({ profile_request_id: requestId }) };
   };
   await assert.rejects(usb.confirmConfiguration('phone-a', requestId), /NOT_CONNECTED/);
+});
+
+
+test('an unchecked base utility stays out of the phone allowance but remains managed remotely', () => {
+  const clock = profileApps('mp3').find(app => app.name === 'clock').packageNames;
+  const selected = mp3Apps.filter(name => !clock.includes(name));
+  const allowed = profileAllowList('mp3', null, 'com.vendor.notes', selected);
+  assert.deepEqual(allowed, [...selected, 'com.vendor.notes']);
+  assert.ok(clock.every(name => !allowed.includes(name)));
+  const managed = profileManagedPackages('mp3', allowed);
+  assert.ok(clock.every(name => managed.includes(name)));
+  assert.ok(managed.includes('com.waze'));
+  assert.ok(managed.includes('app.kosherscan.kosher_scan'));
+  assert.ok(managed.includes('com.vendor.notes'));
+  assert.throws(() => profileAllowList('mp3', null, '', ['com.example.arbitrary']), /PROFILE_INVALID_PACKAGE/);
+  assert.throws(() => profileAllowList('mp3', null, '', 'com.android.deskclock'), /PROFILE_INVALID_PACKAGE/);
+});
+
+test('selected packages use the same version 26 phone payload and exact receipt contract', () => {
+  const selected = mp3Apps.filter(name => name !== 'com.jtech.zemer');
+  const config = phoneProfileConfiguration('mp3', null, '', { intermediate_key: 'a'.repeat(64) }, requestId, selected);
+  assert.equal(config.profile_request_id, requestId);
+  assert.equal(config.app_profile, 'mp3');
+  assert.deepEqual(config.allowed_packages, selected);
+  assert.deepEqual(config.extra_packages, []);
+});
+
+
+test('protected Android services and the reserved browser cannot be selected as extra apps', () => {
+  for (const pkg of ['com.yidream.mdm', 'com.android.settings', 'com.android.packageinstaller',
+    'com.android.webview', 'com.android.chrome']) {
+    assert.equal(isProfileProtected(pkg), true);
+    assert.throws(() => profileAllowList('mp3', new Set([pkg]), pkg), /PROFILE_PROTECTED_PACKAGE/);
+  }
+  assert.equal(isProfileProtected('com.vendor.notes'), false);
 });

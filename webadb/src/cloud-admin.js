@@ -120,6 +120,10 @@ export async function getAndroidUnlockMaterial(){
   return data;
 }
 
+export function getAndroidMaintenanceCode(){
+  return deviceRpc('get_android_maintenance_code');
+}
+
 export async function setDeviceConfigured(id,configured){
   const {error}=await mustDb().rpc('set_device_configured',{target_device_id:id,is_configured:configured});
   if(error)throw error;
@@ -156,14 +160,43 @@ export function assignDeviceClient(id, clientId) {
   return deviceRpc('yd_assign_device_client', { target_device: id, target_client: clientId || null });
 }
 
-export function issueAppActivation(id, email, phone) {
-  return deviceRpc('yd_issue_app_activation', {
-    target_device: id, contact_email: email.trim(), contact_phone: phone.trim().replace(/[\s().-]/g, '')
+export function loadDeviceEnrollment(id) {
+  return deviceRpc('yd_admin_device_enrollment', { target_device: id });
+}
+
+export function issueDeviceActivation(id, email, phone) {
+  return deviceRpc('yd_admin_issue_device_activation', {
+    target_device: id, contact_email: email.trim() || null,
+    contact_phone: phone.trim().replace(/[\s().-]/g, '') || null
   });
 }
 
 export function loadDevicePolicy(id) {
   return deviceRpc('yd_admin_device_policy', { target_device: id });
+}
+
+export function saveUsbAppProfile(id, profile, allowedPackages, managedPackages) {
+  return deviceRpc('yd_admin_set_usb_app_profile', {
+    target_device: id, profile, allowed_packages: allowedPackages, managed_packages: managedPackages
+  });
+}
+
+export function saveDeviceControls(id, profile, appRequests, siteRequests) {
+  return deviceRpc('yd_admin_set_device_controls', {
+    target_device: id, profile, app_requests_enabled: appRequests, site_requests_enabled: siteRequests
+  });
+}
+
+export function saveDeviceSections(id, webEnabled, appStoreEnabled) {
+  return deviceRpc('set_yidream_device_sections', {
+    target_device_id: id, web_enabled: webEnabled, app_store_enabled: appStoreEnabled
+  });
+}
+
+export function saveRequestPermissions(ids, appRequests, siteRequests) {
+  return deviceRpc('yd_admin_set_request_permissions', {
+    target_devices: ids, app_requests_enabled: appRequests, site_requests_enabled: siteRequests
+  });
 }
 
 export function setDeviceRule(id, kind, target, allowed) {

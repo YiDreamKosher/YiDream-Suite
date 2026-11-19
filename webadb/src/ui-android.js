@@ -17,8 +17,8 @@ const defaultBlockedPackages = new Set(Object.values(appCatalog).flat().map(([,p
 export function knownAppPackages(language) {
   return [
     ...Object.values(appCatalog).flat(),
-    ...profileApps('qin').filter(app => app.packageName)
-      .map(app => [app.builtIn ? deviceCopy(language, app.name) : app.name, app.packageName])
+    ...profileApps('qin').flatMap(app => app.packageNames.map(packageName =>
+      [app.builtIn ? deviceCopy(language, app.name) : app.name, packageName]))
   ];
 }
 
