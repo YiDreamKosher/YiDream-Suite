@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeRuleTarget, normalizeSiteExpiry, deviceSections } from '../src/device-controls.js';
+import { managedChromeControl, normalizeRuleTarget, normalizeSiteExpiry, deviceSections, mountDeviceControls } from '../src/device-controls.js';
 import { YiDreamAdb } from '../src/adb.js';
 import { enrollmentProgress } from '../src/device-enrollment.js';
 
@@ -31,6 +31,54 @@ test('temporary site expiry converts the browser time and rejects invalid window
   for (const value of ['', '2026-11-12T08:00', '2026-12-32T08:00', '2027-02-30T08:00', '2027-11-13T08:00', '2026-11-13T08:00Z']) {
     assert.equal(normalizeSiteExpiry(value, now), null, value);
   }
+});
+
+test('managed Chrome requires a compatible report and confirms the current revision only', () => {
+  const revision = 4;
+  const view = (enabled, status, reported_revision) =>
+    managedChromeControl({ revision, applied_revision: revision, managed_chrome: { enabled, status, reported_revision } });
+  assert.deepEqual(managedChromeControl({ revision }), { status: 'serviceMissing', toggle: null });
+  assert.deepEqual(view(false, null, null), { status: 'chromeUnreported', toggle: null });
+  assert.deepEqual(view(false, 'unsupported', 4), { status: 'chromeUnsupported', toggle: null });
+  assert.deepEqual(view(false, 'ready', 4), { status: 'chromeOff', toggle: true });
+  assert.deepEqual(view(true, 'active', 3), { status: 'chromePending', toggle: false });
+  assert.deepEqual(view(true, 'active', 4), { status: 'chromeActive', toggle: false });
+  assert.deepEqual(view(true, 'failed', 4), { status: 'chromeFailed', toggle: false });
+  assert.deepEqual(view(false, 'active', 3), { status: 'chromePending', toggle: true });
+  for (const policy of [{ device_profile: 'mp3' }, { web_enabled: false },
+    { device_profile: 'mp3', web_enabled: 'true' }]) {
+    assert.deepEqual(managedChromeControl({ revision, ...policy,
+      managed_chrome: { enabled: true, status: 'active', reported_revision: revision }
+    }), { status: 'webSectionDisabled', toggle: null });
+  }
+  assert.deepEqual(managedChromeControl({ revision, device_profile: 'mp3', web_enabled: true,
+    managed_chrome: { enabled: false, status: 'ready', reported_revision: revision }
+  }), { status: 'chromeOff', toggle: true });
+});
+
+test('device manager markup keeps one rule editor and independent unnested forms', () => {
+  const stopAfterMarkup = new Error('markup-captured');
+  const host = { innerHTML: '', querySelector() { throw stopAfterMarkup; } };
+  assert.throws(() => mountDeviceControls(host, {
+    device: { id: 'device-a', user_id: 'shop-a', platform: 'Android', configuration_status: 'configured' },
+    clients: [], language: 'fr', packages: [['Chrome', 'com.android.chrome'], ['Reader', 'com.example.reader']], api: {}
+  }), error => error === stopAfterMarkup);
+  for (const attribute of ['data-rule-form', 'data-rule-list', 'data-device-settings', 'data-client-form', 'data-managed-chrome']) {
+    assert.equal((host.innerHTML.match(new RegExp('\\b' + attribute + '(?=[\\s>])', 'g')) || []).length, 1, attribute);
+  }
+  let formOpen = false;
+  for (const tag of host.innerHTML.match(/<\/?form\b[^>]*>/g) || []) {
+    if (tag.startsWith('</')) {
+      assert.equal(formOpen, true, 'Every form end has a matching start');
+      formOpen = false;
+    } else {
+      assert.equal(formOpen, false, 'A form never contains another form');
+      formOpen = true;
+    }
+  }
+  assert.equal(formOpen, false);
+  assert.match(host.innerHTML, /<option value="com\.example\.reader"/);
+  assert.doesNotMatch(host.innerHTML, /<option value="com\.android\.chrome"/);
 });
 
 const activationCode = 'AC'.repeat(16);

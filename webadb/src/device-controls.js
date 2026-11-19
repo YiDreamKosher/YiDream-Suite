@@ -5,6 +5,7 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
 })[character]);
 const packageName = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
 const hostname = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const chromePackage = 'com.android.chrome';
 
 export function normalizeRuleTarget(kind, input) {
   const value = input.trim();
@@ -42,6 +43,24 @@ export function deviceSections(policy) {
   };
 }
 
+export function managedChromeControl(policy) {
+  const chrome = policy.managed_chrome;
+  if (!chrome) return { status: 'serviceMissing', toggle: null };
+  if (!deviceSections(policy).webEnabled) return { status: 'webSectionDisabled', toggle: null };
+  const enabled = chrome.enabled === true;
+  const current = Number.isSafeInteger(chrome.reported_revision) &&
+    chrome.reported_revision === Number(policy.revision);
+  const supported = chrome.status === 'ready' || chrome.status === 'active';
+  const toggle = enabled ? false : supported ? true : null;
+  if (current && chrome.status === 'failed') return { status: 'chromeFailed', toggle };
+  if (chrome.status === 'unsupported') return { status: 'chromeUnsupported', toggle };
+  if (enabled) {
+    return { status: current && chrome.status === 'active' ? 'chromeActive' : 'chromePending', toggle };
+  }
+  if (!chrome.status) return { status: 'chromeUnreported', toggle };
+  return { status: current && chrome.status === 'ready' ? 'chromeOff' : 'chromePending', toggle };
+}
+
 export function mountDeviceControls(host, options) {
   const { device, devices = [], clients, language, packages, api } = options;
   const copy = key => deviceCopy(language, key);
@@ -69,6 +88,14 @@ export function mountDeviceControls(host, options) {
       <small data-policy-sync></small>
     </div>
     <p data-policy-error role="alert" hidden></p>
+    <div class="device-chrome" data-managed-chrome hidden>
+      <div>
+        <h4>${copy('chromeTitle')}</h4>
+        <p>${copy('chromeHint')}</p>
+        <p data-chrome-status role="status"></p>
+      </div>
+      <button type="button" class="button" data-toggle-chrome hidden></button>
+    </div>
     <form class="device-manager-settings" data-device-settings hidden>
       <label class="device-profile-field">${copy('deviceProfile')}<select name="profile">
         <option value="">${copy('unclassified')}</option><option value="mp3">MP3</option><option value="qin">Qin</option>
@@ -107,7 +134,7 @@ export function mountDeviceControls(host, options) {
             <label><span class="device-visually-hidden">${copy('target')}</span>
               <input name="target" placeholder="example.org" autocomplete="off" autocapitalize="off"
                 spellcheck="false" maxlength="2048" required></label>
-            <datalist id="device-app-packages">${packages.map(([label, name]) =>
+            <datalist id="device-app-packages">${packages.filter(([, name]) => name !== chromePackage).map(([label, name]) =>
               `<option value="${escape(name)}" label="${escape(label)}"></option>`).join('')}</datalist>
             <label><span class="device-visually-hidden">${copy('addRule')}</span><select name="action">
               <option value="allow">${copy('allow')}</option><option value="temporary">${copy('temporaryAllow')}</option>
@@ -148,6 +175,9 @@ export function mountDeviceControls(host, options) {
     if (['PGRST202', 'PGRST205', '42P01', '42703'].includes(error?.code)) return copy('serviceMissing');
     if (/DEVICE_NOT_AVAILABLE|APP_ACCESS_DENIED|CONFIGURED_DEVICE_REQUIRED/i.test(error?.message || '')) return copy('unavailableDevice');
     if (error?.message === 'INVALID_SITE_WINDOW') return copy('invalidExpiry');
+    if (error?.message === 'MANAGED_CHROME_REQUIRED') return copy('chromeUseControl');
+    if (error?.message === 'MANAGED_CHROME_UNAVAILABLE') return copy('chromeUnreported');
+    if (error?.message === 'DEVICE_RULE_LIMIT') return copy('ruleLimit');
     if (error?.message === 'MP3_WEB_DISABLED') return copy('mp3WebDisabled');
     if (error?.message === 'WEB_SECTION_DISABLED') return copy('webSectionDisabled');
     return copy('retry');
@@ -184,6 +214,9 @@ export function mountDeviceControls(host, options) {
   const status = rules.querySelector('[data-policy-status]');
   const syncStatus = rules.querySelector('[data-policy-sync]');
   const policyError = rules.querySelector('[data-policy-error]');
+  const chromePanel = rules.querySelector('[data-managed-chrome]');
+  const chromeStatus = rules.querySelector('[data-chrome-status]');
+  const toggleChrome = rules.querySelector('[data-toggle-chrome]');
   const list = rules.querySelector('[data-rule-list]');
   const form = rules.querySelector('[data-rule-form]');
   const refresh = rules.querySelector('[data-refresh-policy]');
@@ -234,6 +267,13 @@ export function mountDeviceControls(host, options) {
       form.elements.kind.value = 'app';
       form.elements.kind.dispatchEvent(new Event('change'));
     }
+    const chrome = managedChromeControl(policy);
+    chromePanel.hidden = !policy.managed_chrome;
+    chromeStatus.textContent = copy(chrome.status);
+    toggleChrome.hidden = chrome.toggle === null;
+    toggleChrome.textContent = copy(chrome.toggle ? 'chromeEnable' : 'chromeDisable');
+    toggleChrome.onclick = chrome.toggle === null ? null :
+      () => runPolicy(() => api.setManagedChrome(device.id, chrome.toggle));
     updateProfileFields();
     const siteRules = new Map(Object.entries(policy.sites || {}));
     const temporary = new Map();
@@ -244,7 +284,8 @@ export function mountDeviceControls(host, options) {
         siteRules.set(target, true);
       }
     }
-    const entries = Object.entries(policy.apps || {}).map(([target, allowed]) => ['app', target, allowed])
+    const entries = Object.entries(policy.apps || {}).filter(([target]) => target !== chromePackage)
+      .map(([target, allowed]) => ['app', target, allowed])
       .concat(Array.from(siteRules, ([target, allowed]) => ['site', target, allowed]))
       .filter(([, , allowed]) => typeof allowed === 'boolean');
     rules.querySelector('[data-rule-count]').textContent = String(entries.length);
@@ -403,6 +444,10 @@ export function mountDeviceControls(host, options) {
     const target = normalizeRuleTarget(kind, form.elements.target.value);
     if (!target) {
       setError(copy('invalidTarget'));
+      return;
+    }
+    if (kind === 'app' && target === chromePackage) {
+      setError(copy('chromeUseControl'));
       return;
     }
     let save;
