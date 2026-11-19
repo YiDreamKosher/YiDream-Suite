@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { managedChromeControl, normalizeRuleTarget, normalizeSiteExpiry } from '../src/device-controls.js';
-import { normalizeRuleTarget, normalizeSiteExpiry, deviceSections } from '../src/device-controls.js';
+import { managedChromeControl, normalizeRuleTarget, normalizeSiteExpiry, deviceSections, mountDeviceControls } from '../src/device-controls.js';
 import { YiDreamAdb } from '../src/adb.js';
 import { enrollmentProgress } from '../src/device-enrollment.js';
 
@@ -46,6 +45,40 @@ test('managed Chrome requires a compatible report and confirms the current revis
   assert.deepEqual(view(true, 'active', 4), { status: 'chromeActive', toggle: false });
   assert.deepEqual(view(true, 'failed', 4), { status: 'chromeFailed', toggle: false });
   assert.deepEqual(view(false, 'active', 3), { status: 'chromePending', toggle: true });
+  for (const policy of [{ device_profile: 'mp3' }, { web_enabled: false },
+    { device_profile: 'mp3', web_enabled: 'true' }]) {
+    assert.deepEqual(managedChromeControl({ revision, ...policy,
+      managed_chrome: { enabled: true, status: 'active', reported_revision: revision }
+    }), { status: 'webSectionDisabled', toggle: null });
+  }
+  assert.deepEqual(managedChromeControl({ revision, device_profile: 'mp3', web_enabled: true,
+    managed_chrome: { enabled: false, status: 'ready', reported_revision: revision }
+  }), { status: 'chromeOff', toggle: true });
+});
+
+test('device manager markup keeps one rule editor and independent unnested forms', () => {
+  const stopAfterMarkup = new Error('markup-captured');
+  const host = { innerHTML: '', querySelector() { throw stopAfterMarkup; } };
+  assert.throws(() => mountDeviceControls(host, {
+    device: { id: 'device-a', user_id: 'shop-a', platform: 'Android', configuration_status: 'configured' },
+    clients: [], language: 'fr', packages: [['Chrome', 'com.android.chrome'], ['Reader', 'com.example.reader']], api: {}
+  }), error => error === stopAfterMarkup);
+  for (const attribute of ['data-rule-form', 'data-rule-list', 'data-device-settings', 'data-client-form', 'data-managed-chrome']) {
+    assert.equal((host.innerHTML.match(new RegExp('\\b' + attribute + '(?=[\\s>])', 'g')) || []).length, 1, attribute);
+  }
+  let formOpen = false;
+  for (const tag of host.innerHTML.match(/<\/?form\b[^>]*>/g) || []) {
+    if (tag.startsWith('</')) {
+      assert.equal(formOpen, true, 'Every form end has a matching start');
+      formOpen = false;
+    } else {
+      assert.equal(formOpen, false, 'A form never contains another form');
+      formOpen = true;
+    }
+  }
+  assert.equal(formOpen, false);
+  assert.match(host.innerHTML, /<option value="com\.example\.reader"/);
+  assert.doesNotMatch(host.innerHTML, /<option value="com\.android\.chrome"/);
 });
 
 const activationCode = 'AC'.repeat(16);

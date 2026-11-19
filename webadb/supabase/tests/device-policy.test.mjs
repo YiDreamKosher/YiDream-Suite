@@ -594,6 +594,12 @@ await assert.rejects(() => reportV3(nextPhone.token, chromeDisabled.revision, tr
 await act('authenticated', adminA);
 await assert.rejects(() => setChrome(id, true), /MANAGED_CHROME_UNAVAILABLE/);
 
+// Restore a fresh credential for the existing account before the following
+// enrollment scenarios. The old nextPhone token was intentionally revoked.
+const restoreChromeAccount = await assignAccount(nextAccount.id);
+await act('anon');
+Object.assign(nextPhone, await redeem(restoreChromeAccount.code));
+
 // Match the provisioning code format without using any production key material.
 await db.exec('reset role');
 await db.exec(`
@@ -1062,6 +1068,65 @@ await db.exec('rollback');
 await db.query('update public.yd_catalog set is_base=true,owner_id=$2 where id=$1', [officialZemer[0].id, adminB]);
 await assert.rejects(() => loadMigration(zemerMigration), /ZEMER_CATALOG_CONFLICT/);
 await db.exec('rollback');
+
+// The pilot must respect the current effective web section for every profile.
+await db.exec('reset role');
+const chromeSectionsMigration = '20261119153504_managed_chrome_web_sections.sql';
+await loadMigration(chromeSectionsMigration);
+await loadMigration(chromeSectionsMigration);
+assert.equal(await scalar("select has_function_privilege('anon','private.yd_guard_chrome_web_section()','execute')"), false);
+await act('anon', '', true, recoveredPhone.app_token);
+const qinBeforeChrome = await phonePolicyV3(recoveredPhone.token);
+for (const field of ['device_profile', 'web_enabled', 'app_store_enabled', 'app_requests_enabled', 'site_requests_enabled']) {
+  assert.equal(qinBeforeChrome[field], (await phonePolicyV2(recoveredPhone.token))[field]);
+}
+await reportV3(recoveredPhone.token, qinBeforeChrome.revision, true, 'ready');
+await act('authenticated', adminA);
+const qinChrome = await setChrome(id, true);
+assert.equal(qinChrome.managed_chrome.enabled, true);
+await act('anon', '', true, recoveredPhone.app_token);
+await reportV3(recoveredPhone.token, qinChrome.revision, true, 'active');
+await act('authenticated', adminA);
+const qinClosed = await setSections(id, false, true);
+assert.equal(qinClosed.revision, qinChrome.revision + 1);
+assert.equal(qinClosed.managed_chrome.enabled, false);
+await assert.rejects(() => setChrome(id, true), /WEB_SECTION_DISABLED/);
+await act('anon', '', true, recoveredPhone.app_token);
+await assert.rejects(() => reportV3(recoveredPhone.token, qinClosed.revision, true, 'active'), /INVALID_POLICY_REPORT/);
+const qinCloseReport = await reportV3(recoveredPhone.token, qinClosed.revision, true, 'ready');
+assert.equal(qinCloseReport.applied_revision, qinClosed.revision);
+await act('authenticated', adminA);
+const reopenedQin = await setSections(id, true, true);
+assert.equal(reopenedQin.managed_chrome.enabled, false);
+// MP3 stays closed until its explicit web exception, with no automatic Chrome
+// reactivation when either the profile or the section changes.
+await setControls(id, 'mp3', false, false);
+await assert.rejects(() => setChrome(id, true), /WEB_SECTION_DISABLED/);
+const closedMp3Chrome = await adminPolicy(id);
+assert.equal(closedMp3Chrome.web_enabled, false);
+assert.equal(closedMp3Chrome.managed_chrome.enabled, false);
+await setSections(id, true, false);
+await act('anon', '', true, recoveredPhone.app_token);
+const openMp3Chrome = await phonePolicyV3(recoveredPhone.token);
+assert.equal(openMp3Chrome.web_enabled, true);
+assert.equal(openMp3Chrome.app_store_enabled, false);
+assert.equal(openMp3Chrome.device_profile, 'mp3');
+await reportV3(recoveredPhone.token, openMp3Chrome.revision, true, 'ready');
+await act('authenticated', adminA);
+const mp3ChromeEnabled = await setChrome(id, true);
+assert.equal(mp3ChromeEnabled.managed_chrome.enabled, true);
+await setControls(id, 'qin', false, false);
+const qinChromeStillEnabled = await adminPolicy(id);
+assert.equal(qinChromeStillEnabled.managed_chrome.enabled, true);
+const resetMp3Chrome = await setControls(id, 'mp3', false, false);
+assert.equal(resetMp3Chrome.web_enabled, false);
+assert.equal(resetMp3Chrome.managed_chrome.enabled, false);
+assert.equal(resetMp3Chrome.apps[chrome], false);
+await db.exec('reset role');
+await loadMigration(chromeSectionsMigration);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(id)).revision, resetMp3Chrome.revision);
+assert.equal((await adminPolicy(id)).managed_chrome.enabled, false);
 
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, managed Chrome, and permanent and timed requests passed.');

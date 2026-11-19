@@ -34,9 +34,19 @@ export function normalizeSiteExpiry(localDateTime, now = Date.now()) {
   return date.toISOString();
 }
 
+/** Profile defaults remain closed for MP3 until a boolean server exception arrives. */
+export function deviceSections(policy) {
+  const fallback = policy.device_profile !== 'mp3';
+  return {
+    webEnabled: typeof policy.web_enabled === 'boolean' ? policy.web_enabled : fallback,
+    appStoreEnabled: typeof policy.app_store_enabled === 'boolean' ? policy.app_store_enabled : fallback
+  };
+}
+
 export function managedChromeControl(policy) {
   const chrome = policy.managed_chrome;
   if (!chrome) return { status: 'serviceMissing', toggle: null };
+  if (!deviceSections(policy).webEnabled) return { status: 'webSectionDisabled', toggle: null };
   const enabled = chrome.enabled === true;
   const current = Number.isSafeInteger(chrome.reported_revision) &&
     chrome.reported_revision === Number(policy.revision);
@@ -49,13 +59,6 @@ export function managedChromeControl(policy) {
   }
   if (!chrome.status) return { status: 'chromeUnreported', toggle };
   return { status: current && chrome.status === 'ready' ? 'chromeOff' : 'chromePending', toggle };
-/** Profile defaults remain closed for MP3 until a boolean server exception arrives. */
-export function deviceSections(policy) {
-  const fallback = policy.device_profile !== 'mp3';
-  return {
-    webEnabled: typeof policy.web_enabled === 'boolean' ? policy.web_enabled : fallback,
-    appStoreEnabled: typeof policy.app_store_enabled === 'boolean' ? policy.app_store_enabled : fallback
-  };
 }
 
 export function mountDeviceControls(host, options) {
@@ -93,23 +96,6 @@ export function mountDeviceControls(host, options) {
       </div>
       <button type="button" class="button" data-toggle-chrome hidden></button>
     </div>
-    <div data-rule-list></div>
-    <form data-rule-form class="device-rule-form" hidden>
-      <label><span class="device-visually-hidden">${copy('target')}</span><select name="kind">
-        <option value="site">${copy('site')}</option><option value="app">${copy('app')}</option>
-      </select></label>
-      <label><span class="device-visually-hidden">${copy('target')}</span>
-        <input name="target" placeholder="example.org" autocomplete="off" autocapitalize="off"
-          spellcheck="false" maxlength="2048" required></label>
-      <datalist id="device-app-packages">${packages.filter(([, name]) => name !== chromePackage).map(([label, name]) =>
-        `<option value="${escape(name)}" label="${escape(label)}"></option>`).join('')}</datalist>
-      <label><span class="device-visually-hidden">${copy('addRule')}</span><select name="action">
-        <option value="allow">${copy('allow')}</option><option value="temporary">${copy('temporaryAllow')}</option>
-        <option value="block">${copy('block')}</option>
-      </select></label>
-      <button type="submit" class="button primary">${copy('addRule')}</button>
-      <label class="device-rule-expiry" data-rule-expiry hidden>${copy('expiry')}
-        <input name="expires" type="datetime-local"></label>
     <form class="device-manager-settings" data-device-settings hidden>
       <label class="device-profile-field">${copy('deviceProfile')}<select name="profile">
         <option value="">${copy('unclassified')}</option><option value="mp3">MP3</option><option value="qin">Qin</option>
@@ -148,7 +134,7 @@ export function mountDeviceControls(host, options) {
             <label><span class="device-visually-hidden">${copy('target')}</span>
               <input name="target" placeholder="example.org" autocomplete="off" autocapitalize="off"
                 spellcheck="false" maxlength="2048" required></label>
-            <datalist id="device-app-packages">${packages.map(([label, name]) =>
+            <datalist id="device-app-packages">${packages.filter(([, name]) => name !== chromePackage).map(([label, name]) =>
               `<option value="${escape(name)}" label="${escape(label)}"></option>`).join('')}</datalist>
             <label><span class="device-visually-hidden">${copy('addRule')}</span><select name="action">
               <option value="allow">${copy('allow')}</option><option value="temporary">${copy('temporaryAllow')}</option>
@@ -282,13 +268,12 @@ export function mountDeviceControls(host, options) {
       form.elements.kind.dispatchEvent(new Event('change'));
     }
     const chrome = managedChromeControl(policy);
-    chromePanel.hidden = false;
+    chromePanel.hidden = !policy.managed_chrome;
     chromeStatus.textContent = copy(chrome.status);
     toggleChrome.hidden = chrome.toggle === null;
     toggleChrome.textContent = copy(chrome.toggle ? 'chromeEnable' : 'chromeDisable');
     toggleChrome.onclick = chrome.toggle === null ? null :
       () => runPolicy(() => api.setManagedChrome(device.id, chrome.toggle));
-
     updateProfileFields();
     const siteRules = new Map(Object.entries(policy.sites || {}));
     const temporary = new Map();
@@ -301,8 +286,6 @@ export function mountDeviceControls(host, options) {
     }
     const entries = Object.entries(policy.apps || {}).filter(([target]) => target !== chromePackage)
       .map(([target, allowed]) => ['app', target, allowed])
-      .concat(Array.from(siteRules, ([target, allowed]) => ['site', target, allowed]));
-    const entries = Object.entries(policy.apps || {}).map(([target, allowed]) => ['app', target, allowed])
       .concat(Array.from(siteRules, ([target, allowed]) => ['site', target, allowed]))
       .filter(([, , allowed]) => typeof allowed === 'boolean');
     rules.querySelector('[data-rule-count]').textContent = String(entries.length);
