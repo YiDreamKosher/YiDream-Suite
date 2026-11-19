@@ -1,6 +1,8 @@
-import { YiDreamAdb, parseExtraPackages } from './adb.js';
+import { YiDreamAdb } from './adb.js';
 import { fetchCurrentApk } from './current-apk.js';
-import { preparePhone, phoneConfiguration } from './android-setup.js';
+import { phoneProfileConfiguration } from './android-setup.js';
+import { ANDROID_PROFILES, PROFILE_VERSION_CODE, isProfileProtected, profileApps } from './android-profiles.js';
+import { prepareProfiledUsbPhone } from './usb-profile-policy.js';
 import { deviceCopy } from './device-control-copy.js';
 import { mountDeviceEnrollment } from './device-enrollment.js';
 
@@ -11,7 +13,7 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
 const deviceId = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 export function mountUsbEnrollment(host, usb, options) {
-  const { language, groups, targetDevice, owner, api, translateError, openRecord } = options;
+  const { language, targetDevice, owner, api, translateError, openRecord } = options;
   const copy = key => deviceCopy(language, key);
   const state = {
     step: usb.info ? 1 : 0,
@@ -19,8 +21,9 @@ export function mountUsbEnrollment(host, usb, options) {
     preparedSerial: null,
     registration: null,
     phone: null,
-    enabled: new Set(groups.map(group => group.key)),
     profile: '',
+    installed: null,
+    excludedApps: new Set(),
     extra: '',
     error: '',
     progress: ''
@@ -46,6 +49,23 @@ export function mountUsbEnrollment(host, usb, options) {
     if (error?.code === 'PGRST202') return copy('serviceMissing');
     if (error?.message === 'CONFIGURATION_NOT_CONFIRMED') return copy('configUnconfirmed');
     if (error?.message === 'DEVICE_OWNER_NOT_CONFIRMED') return copy('ownerUnconfirmed');
+    if (error?.message === 'INVALID_CONTACT') return copy('contactInvalid');
+    const profileErrors = {
+      PROFILE_REQUIRED: 'chooseProfile',
+      PROFILE_UPDATE_REQUIRED: 'profileUpdateRequired',
+      PROFILE_INVALID_PACKAGE: 'profileInvalidPackage',
+      PROFILE_PLAY_APP_NOT_INSTALLED: 'profilePlayAppNotInstalled',
+      PROFILE_STORE_BLOCKED: 'profileStoreBlocked',
+      PROFILE_PROTECTED_PACKAGE: 'profileProtectedPackage',
+      PROFILE_PACKAGE_LIMIT: 'profilePackageLimit',
+      USB_PROFILE_APP_DENIED: 'profileAppDenied',
+      USB_PROFILE_INVALID_PACKAGES: 'profileInvalidPackage',
+      USB_PROFILE_INVALID_TYPE: 'chooseProfile',
+      USB_PROFILE_APP_PROTECTED: 'profileProtectedPackage',
+      USB_REGISTRATION_REQUIRED: 'unavailableDevice',
+      DEVICE_RULE_LIMIT: 'profilePackageLimit'
+    };
+    if (Object.hasOwn(profileErrors, error?.message)) return copy(profileErrors[error.message]);
     if (/DEVICE_NOT_AVAILABLE|APP_ACCESS_DENIED/i.test(error?.message || '')) return copy('unavailableDevice');
     if (error?.message === 'USB_DEVICE_MISMATCH') return copy('wrongPhone');
     return translateError(error) || copy('retry');
@@ -60,10 +80,28 @@ export function mountUsbEnrollment(host, usb, options) {
       await action();
     } catch (error) {
       state.error = errorMessage(error);
+      if (error?.message === 'USB_PROFILE_APP_DENIED') {
+        state.preparedSerial = null;
+        state.step = 1;
+      }
     } finally {
       state.busy = false;
       state.progress = '';
       render();
+    }
+  }
+
+  async function readInstalledPackages() {
+    const serial = usb.info?.serial;
+    if (!serial) return;
+    state.installed = null;
+    progress(copy('readingApps'));
+    try {
+      const installed = await usb.listInstalledPackages(serial);
+      checkPhone(serial);
+      state.installed = installed;
+    } catch {
+      checkPhone(serial);
     }
   }
 
@@ -81,53 +119,33 @@ export function mountUsbEnrollment(host, usb, options) {
     }
     state.phone = { ...usb.info };
     state.step = state.registration ? 2 : 1;
-  }
-
-  async function saveRecord() {
-    if (!state.preparedSerial || state.phone?.serial !== state.preparedSerial ||
-        (usb.info && usb.info.serial !== state.preparedSerial)) throw new Error('NOT_CONNECTED');
-    progress(copy('register'));
-    const record = await api.registerUsbDevice(state.phone, targetDevice?.id || null);
-    if (!deviceId.test(record?.device_id || '')) throw new Error(copy('retry'));
-    if (!active()) return;
-    if (state.profile) {
-      const policy = await api.loadDevicePolicy(record.device_id);
-      if (!active()) return;
-      const alreadyClassified = Boolean(policy?.device_profile);
-      await api.saveDeviceControls(record.device_id, state.profile,
-        alreadyClassified && policy.app_requests_enabled === true,
-        state.profile !== 'mp3' && alreadyClassified && policy.site_requests_enabled === true);
-      if (!active()) return;
-    }
-    state.registration = record;
-    state.step = 2;
+    if (!state.registration) await readInstalledPackages();
   }
 
   async function prepare() {
     const phone = usb.info && { ...usb.info };
     if (!phone?.serial) throw new Error('NOT_CONNECTED');
-    const packages = groups.filter(group => state.enabled.has(group.key)).flatMap(group => group.packages);
-    const extra = parseExtraPackages(state.extra);
-    if (extra.invalid.length) throw new Error(copy('invalidTarget'));
+    if (!Object.hasOwn(ANDROID_PROFILES, state.profile)) throw new Error('PROFILE_REQUIRED');
     if (await api.verifyUsbTarget(phone, targetDevice?.id || null) !== true) {
       throw new Error(copy(targetDevice ? 'wrongPhone' : 'unavailableDevice'));
     }
     checkPhone(phone.serial);
     const material = await api.getAndroidUnlockMaterial();
     checkPhone(phone.serial);
-    const config = phoneConfiguration(packages, state.extra, material);
-    const release = await fetchCurrentApk();
+    const selected = profileApps(state.profile).filter(app => !state.excludedApps.has(app.packageName))
+      .flatMap(app => app.packageNames);
+    const config = phoneProfileConfiguration(state.profile, state.installed, state.extra, material,
+      crypto.randomUUID(), selected);
+    const release = await fetchCurrentApk(fetch, crypto, PROFILE_VERSION_CODE);
     checkPhone(phone.serial);
-    await preparePhone(usb, release, phase => progress(copy(phase === 'install' ? 'install' : 'manage')));
+    const record = await prepareProfiledUsbPhone(usb, release, config, api, targetDevice?.id || null,
+      phase => progress(copy(phase === 'install' ? 'install' : phase === 'owner' ? 'manage' : phase === 'apply' ? 'applying' : 'register')),
+      () => checkPhone(phone.serial));
     checkPhone(phone.serial);
-    progress(copy('applying'));
-    await usb.applyConfig(config);
-    checkPhone(phone.serial);
-    await usb.confirmConfiguration(phone.serial);
-    if (!active()) return;
     state.phone = phone;
     state.preparedSerial = phone.serial;
-    await saveRecord();
+    state.registration = record;
+    state.step = 2;
   }
 
   async function approve() {
@@ -142,15 +160,49 @@ export function mountUsbEnrollment(host, usb, options) {
   }
 
   function preparationOptions() {
-    return `<details class="setup-help" ${state.enabled.size < groups.length || state.extra ? 'open' : ''}>
-      <summary>${copy('options')}</summary>
-      <div class="setup-categories">
-        ${groups.map(({ key }) => `<label><input type="checkbox" data-setup-category="${key}"
-          ${state.enabled.has(key) ? 'checked' : ''}> ${copy(key)}</label>`).join('')}
-      </div>
+    const profiles = Object.entries(ANDROID_PROFILES).map(([key, label]) => (
+      `<label class="setup-profile-choice">
+        <input type="radio" name="androidProfile" value="${key}" ${state.profile === key ? 'checked' : ''}>
+        <span><b>${label}</b><small>${copy(key === 'mp3' ? 'mp3Profile' : 'qinProfile')}</small></span>
+      </label>`
+    )).join('');
+    return `<fieldset class="setup-profiles">
+      <legend>${copy('deviceProfile')}</legend>
+      <div class="setup-profile-choices">${profiles}</div>
+    </fieldset>${state.profile ? profileDetails() : ''}`;
+  }
+
+  function profileDetails() {
+    const apps = profileApps(state.profile);
+    const rows = apps.map(({ name, packageName, packageNames, builtIn }) => {
+      let status = 'onPhone';
+      if (!state.installed) status = 'notVerifiedOnPhone';
+      else if (!packageNames.some(name => state.installed.has(name))) status = 'allowedIfInstalled';
+      const present = packageNames.filter(name => state.installed?.has(name));
+      return `<li><label class="setup-profile-app-choice">
+        <input type="checkbox" data-profile-app="${packageName}" ${state.excludedApps.has(packageName) ? '' : 'checked'}>
+        <span><b>${builtIn ? copy(name) : name}</b><small>${copy(status)}</small>
+          <code dir="ltr">${(present.length ? present : [packageName]).join(', ')}</code>
+        </span></label></li>`;
+    }).join('');
+    const defaults = new Set(apps.flatMap(app => app.packageNames));
+    const suggestions = [...(state.installed || [])]
+      .filter(packageName => !defaults.has(packageName) && !isProfileProtected(packageName))
+      .sort().map(packageName => `<option value="${escape(packageName)}"></option>`).join('');
+    const selectedCount = apps.filter(app => !state.excludedApps.has(app.packageName)).length;
+    return `<details class="setup-help setup-profile-apps">
+      <summary data-profile-selection-summary>${copy('profileCustomize')} · ${selectedCount}/${apps.length}</summary>
+      <ul>${rows}</ul>
+      <p>${copy('profileInstallHint')}</p>
+    </details>
+    <details class="setup-help" ${state.extra ? 'open' : ''}>
+      <summary>${copy('profileExtras')}</summary>
       <label for="setupExtra">${copy('extraApps')}</label>
-      <input id="setupExtra" data-setup-extra value="${escape(state.extra)}" placeholder="com.example.app"
-        autocapitalize="off" autocomplete="off" spellcheck="false">
+      <input id="setupExtra" data-setup-extra list="setupInstalledApps" value="${escape(state.extra)}"
+        placeholder="com.example.app" dir="ltr" autocapitalize="off" autocomplete="off" spellcheck="false"
+        maxlength="25700" aria-describedby="setupExtraHint">
+      <datalist id="setupInstalledApps">${suggestions}</datalist>
+      <p id="setupExtraHint">${copy(state.installed ? 'profileExtrasHint' : 'profileInventoryUnavailable')}</p>
     </details>`;
   }
 
@@ -191,7 +243,6 @@ export function mountUsbEnrollment(host, usb, options) {
     const phone = usb.info || state.phone;
     const phoneName = [phone?.manufacturer, phone?.model].filter(Boolean).join(' ') || 'Android';
     const connected = Boolean(usb.info);
-    const recordRetry = Boolean(state.preparedSerial && !state.registration);
     const phoneInfo = phone ? `<div class="setup-phone">
       <div><b>${escape(phoneName)}</b><small>Android ${escape(phone.android)}</small></div>
       ${connected ? '<span class="setup-connected">USB</span>' : ''}
@@ -199,14 +250,9 @@ export function mountUsbEnrollment(host, usb, options) {
     const connectBody = `<p>${copy('connectHint')}</p><details class="setup-help">
       <summary>${copy('help')}</summary><p>${copy('usbHelp')}</p></details>
       <button type="button" class="primary" data-connect>${copy('connectPhone')}</button>`;
-    const prepareBody = `<p>${copy(recordRetry ? 'registeredPending' : 'prepareHint')}</p>
-      ${recordRetry ? '' : `<label class="setup-profile">${copy('deviceProfile')}<select data-setup-profile>
-        <option value="">${copy('unclassified')}</option>
-        <option value="mp3" ${state.profile === 'mp3' ? 'selected' : ''}>MP3</option>
-        <option value="qin" ${state.profile === 'qin' ? 'selected' : ''}>Qin</option>
-      </select></label>`}
-      ${recordRetry ? '' : preparationOptions()}
-      <button type="button" class="primary" data-prepare>${copy(recordRetry ? 'registerAgain' : 'preparePhone')}</button>`;
+    const prepareBody = `<p>${copy('prepareHint')}</p>
+      ${preparationOptions()}
+      <button type="button" class="primary" data-prepare ${state.profile ? '' : 'disabled'}>${copy('preparePhone')}</button>`;
     host.classList.add('android-guided');
     host.innerHTML = `<div class="setup-heading"><h2>${copy('setup')}</h2></div>
       <ol class="setup-progress" aria-label="${copy('setup')}">
@@ -230,7 +276,7 @@ export function mountUsbEnrollment(host, usb, options) {
       </section>`;
     if (busy) host.querySelectorAll('button, input, select').forEach(control => { control.disabled = true; });
     find('[data-connect]')?.addEventListener('click', () => run(connect));
-    find('[data-prepare]')?.addEventListener('click', () => run(recordRetry ? saveRecord : prepare));
+    find('[data-prepare]')?.addEventListener('click', () => run(prepare));
     find('[data-approval]')?.addEventListener('click', () => run(owner ? approve : checkApproval));
     find('[data-disconnect]')?.addEventListener('click', () => run(async () => {
       await usb.disconnect();
@@ -238,14 +284,26 @@ export function mountUsbEnrollment(host, usb, options) {
     }));
     find('[data-open-record]')?.addEventListener('click', () => run(() => openRecord(knownId)));
     find('[data-copy-id]')?.addEventListener('click', event => copyText(knownId, event.currentTarget));
-    host.querySelectorAll('[data-setup-category]').forEach(input => {
+    host.querySelectorAll('[name="androidProfile"]').forEach(input => {
       input.addEventListener('change', () => {
-        if (input.checked) state.enabled.add(input.dataset.setupCategory);
-        else state.enabled.delete(input.dataset.setupCategory);
+        if (!Object.hasOwn(ANDROID_PROFILES, input.value)) return;
+        state.profile = input.value;
+        state.excludedApps.clear();
+        state.error = '';
+        render();
+        find(`[name="androidProfile"][value="${state.profile}"]`)?.focus();
+      });
+    });
+    host.querySelectorAll('[data-profile-app]').forEach(input => {
+      input.addEventListener('change', () => {
+        if (input.checked) state.excludedApps.delete(input.dataset.profileApp);
+        else state.excludedApps.add(input.dataset.profileApp);
+        const apps = profileApps(state.profile);
+        const selectedCount = apps.filter(app => !state.excludedApps.has(app.packageName)).length;
+        find('[data-profile-selection-summary]').textContent = `${copy('profileCustomize')} · ${selectedCount}/${apps.length}`;
       });
     });
     find('[data-setup-extra]')?.addEventListener('input', event => { state.extra = event.currentTarget.value; });
-    find('[data-setup-profile]')?.addEventListener('change', event => { state.profile = event.currentTarget.value; });
     const enrollmentSlot = find('[data-setup-enrollment]');
     if (enrollmentSlot) {
       if (enrollmentHost) {
@@ -272,10 +330,17 @@ export function mountUsbEnrollment(host, usb, options) {
       return;
     }
     state.step = state.preparedSerial ? 1 : 0;
+    if (!state.preparedSerial) {
+      state.profile = '';
+      state.installed = null;
+      state.excludedApps.clear();
+      state.extra = '';
+    }
     render();
   }
 
   render();
+  if (usb.info) void run(readInstalledPackages);
   return {
     disconnected,
     dispose() {

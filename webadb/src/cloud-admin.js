@@ -175,6 +175,12 @@ export function loadDevicePolicy(id) {
   return deviceRpc('yd_admin_device_policy', { target_device: id });
 }
 
+export function saveUsbAppProfile(id, profile, allowedPackages, managedPackages) {
+  return deviceRpc('yd_admin_set_usb_app_profile', {
+    target_device: id, profile, allowed_packages: allowedPackages, managed_packages: managedPackages
+  });
+}
+
 export function saveDeviceControls(id, profile, appRequests, siteRequests) {
   return deviceRpc('yd_admin_set_device_controls', {
     target_device: id, profile, app_requests_enabled: appRequests, site_requests_enabled: siteRequests

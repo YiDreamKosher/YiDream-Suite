@@ -1128,5 +1128,242 @@ await act('authenticated', adminA);
 assert.equal((await adminPolicy(id)).revision, resetMp3Chrome.revision);
 assert.equal((await adminPolicy(id)).managed_chrome.enabled, false);
 
+// USB preparation saves the exact selection before owner approval, without
+// opening a second path for device activation or APK installation.
+await db.exec('reset role');
+const usbProfileMigration = '20261119154116_usb_app_profile_preparation.sql';
+await loadMigration(usbProfileMigration);
+await loadMigration(usbProfileMigration);
+const usbBaseline = [
+  'com.android.calculator2', 'com.google.android.calculator',
+  'com.android.deskclock', 'com.google.android.deskclock',
+  'com.android.calendar', 'com.google.android.calendar',
+  'com.android.soundrecorder', 'com.google.android.apps.recorder',
+  'com.android.notes', 'com.android.notepad', 'com.google.android.keep',
+  'com.jtech.zemer', 'tfilon.tfilon', 'net.calj.android', 'com.rhmsoft.pulsar',
+  'fm.jewishmusic.application', 'com.waze', 'app.kosherscan.kosher_scan'
+];
+const usbMp3 = usbBaseline.filter(name => !['com.waze', 'app.kosherscan.kosher_scan', 'com.google.android.keep'].includes(name));
+const prepareUsb = (target, profile, allowed, managed = usbBaseline) => scalar(
+  'select public.yd_admin_set_usb_app_profile($1,$2,$3,$4)', [target, profile, allowed, managed]
+);
+assert.equal(await scalar("select has_function_privilege('anon','public.yd_admin_set_usb_app_profile(uuid,text,text[],text[])','execute')"), false);
+await act('authenticated', adminA);
+const usbPending = await register(null, 'fixture-usb-profile-pending');
+const usbPendingId = usbPending.device_id;
+assert.equal(usbPending.configuration_status, 'needs_configuration');
+await db.exec('reset role');
+const accountCounts = () => scalar(`select jsonb_build_object(
+  'accounts', (select count(*) from public.yd_app_accounts),
+  'links', (select count(*) from public.yd_device_links),
+  'pending_activations', (select count(*) from private.yd_pending_app_activation))`);
+const accountsBeforePreparation = await accountCounts();
+await act('anon');
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /permission denied/);
+await act('authenticated', customer);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await act('authenticated', adminA, false);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await db.exec('reset role');
+await db.query("update auth.sessions set not_after=now()-interval '1 second' where id=$1", [adminA]);
+await act('authenticated', adminA);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await db.exec('reset role');
+await db.query('update auth.sessions set not_after=null where id=$1', [adminA]);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,false)', [adminA]);
+await act('authenticated', adminA);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /APP_ACCESS_DENIED/);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,true)', [adminA]);
+await act('authenticated', adminB);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', adminA);
+await assert.rejects(() => prepareUsb(usbPendingId, 'smartphone', usbMp3), /USB_PROFILE_INVALID_TYPE/);
+await assert.rejects(() => prepareUsb(usbPendingId, null, usbMp3), /USB_PROFILE_INVALID_TYPE/);
+for (const [allowed, managed] of [
+  [null, usbBaseline], [usbMp3, null], [usbMp3, usbBaseline.concat(usbBaseline[0])],
+  [[], usbBaseline.filter(name => name !== 'com.jtech.zemer')],
+  [['com.example.notmanaged'], usbBaseline], [[], usbBaseline.concat('bad;package')],
+  [[], usbBaseline.concat(null)], [[], usbBaseline.concat(Array.from({ length: 83 }, (_, n) => 'com.example.limit' + n))]
+]) await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', allowed, managed), /USB_PROFILE_INVALID_PACKAGES/);
+await assert.rejects(() => db.query(`select public.yd_admin_set_usb_app_profile(
+  $1,'mp3',array[array['com.jtech.zemer']],$2)`, [usbPendingId, usbBaseline]), /USB_PROFILE_INVALID_PACKAGES/);
+for (const forbidden of ['com.yidream.mdm', 'com.android.settings', 'com.android.systemui',
+  'com.google.android.packageinstaller', 'com.android.vending', 'com.aurora.store', 'com.android.chrome']) {
+  await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3.concat(forbidden), usbBaseline.concat(forbidden)),
+    /USB_PROFILE_APP_PROTECTED/);
+}
+const usbExtra = 'com.example.usbextra';
+const preparedUsb = await prepareUsb(usbPendingId, 'mp3', usbMp3.concat(usbExtra), usbBaseline.concat(usbExtra));
+assert.equal(preparedUsb.revision, 1);
+assert.equal(preparedUsb.device_profile, 'mp3');
+assert.equal(preparedUsb.web_enabled, false);
+assert.equal(preparedUsb.app_store_enabled, false);
+assert.equal(preparedUsb.apps[usbExtra], true);
+assert.equal(preparedUsb.apps['com.jtech.zemer'], true);
+assert.equal(preparedUsb.apps['com.google.android.keep'], false);
+assert.equal(preparedUsb.apps['com.waze'], false);
+assert.equal((await prepareUsb(usbPendingId, 'mp3', usbMp3.concat(usbExtra), usbBaseline.concat(usbExtra))).revision, 1);
+await assert.rejects(() => setRule(usbPendingId, 'app', 'com.example.any', true), /CONFIGURED_DEVICE_REQUIRED/);
+await assert.rejects(() => issue(usbPendingId), /CONFIGURED_DEVICE_REQUIRED/);
+assert.equal(await scalar('select configuration_status from public.devices where id=$1', [usbPendingId]), 'needs_configuration');
+const removedUsbExtra = await prepareUsb(usbPendingId, 'mp3', usbMp3);
+assert.equal(removedUsbExtra.revision, 2);
+assert.equal(removedUsbExtra.apps[usbExtra], false);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3.concat(usbExtra), usbBaseline.concat(usbExtra)), /USB_PROFILE_APP_DENIED/);
+assert.deepEqual(persistedPolicy(await adminPolicy(usbPendingId)), persistedPolicy(removedUsbExtra));
+// A historical database record alone is insufficient; the USB registration is
+// required even for its owning administrator.
+await assert.rejects(() => prepareUsb(deviceB, 'mp3', usbMp3), /DEVICE_NOT_AVAILABLE/);
+await act('authenticated', adminB);
+await assert.rejects(() => prepareUsb(deviceB, 'mp3', usbMp3), /USB_REGISTRATION_REQUIRED/);
+await db.exec('reset role');
+assert.deepEqual(await accountCounts(), accountsBeforePreparation);
+// After an independent owner approval, the same atomic operation still respects
+// explicit denies and preserves unrelated rules and same-profile exceptions.
+await act('authenticated', owner);
+await scalar('select public.set_device_configured($1,true)', [usbPendingId]);
+await act('authenticated', adminA);
+await setSections(usbPendingId, true, false);
+await setControls(usbPendingId, 'mp3', true, true);
+await setRule(usbPendingId, 'app', 'com.example.unrelated', true);
+await setRule(usbPendingId, 'app', 'com.example.remote_denied', false);
+const configuredUsb = await adminPolicy(usbPendingId);
+await assert.rejects(() => prepareUsb(usbPendingId, 'mp3', usbMp3.concat('com.example.remote_denied'),
+  usbBaseline.concat('com.example.remote_denied')), /USB_PROFILE_APP_DENIED/);
+await db.exec('reset role');
+await db.query(`insert into private.yd_scoped_request_grants(request_kind,request_id,device_id,target) values
+  ('app',gen_random_uuid(),$1,'com.google.android.keep'),('app',gen_random_uuid(),$1,'com.example.scoped_unrelated')`, [usbPendingId]);
+await act('authenticated', adminA);
+const preparedConfiguredUsb = await prepareUsb(usbPendingId, 'mp3', usbMp3);
+assert.equal(preparedConfiguredUsb.revision, configuredUsb.revision + 1);
+assert.equal(preparedConfiguredUsb.web_enabled, true);
+assert.equal(preparedConfiguredUsb.app_store_enabled, false);
+assert.equal(preparedConfiguredUsb.app_requests_enabled, true);
+assert.equal(preparedConfiguredUsb.site_requests_enabled, true);
+assert.equal(preparedConfiguredUsb.apps['com.example.unrelated'], true);
+assert.equal(preparedConfiguredUsb.apps['com.example.remote_denied'], false);
+assert.equal(preparedConfiguredUsb.apps['com.google.android.keep'], false);
+assert.equal(preparedConfiguredUsb.apps['com.example.scoped_unrelated'], true);
+const usbChangedToQin = await prepareUsb(usbPendingId, 'qin', usbMp3);
+assert.equal(usbChangedToQin.device_profile, 'qin');
+assert.equal(usbChangedToQin.web_enabled, true);
+assert.equal(usbChangedToQin.app_store_enabled, true);
+assert.equal(usbChangedToQin.apps['com.google.android.keep'], false);
+const usbChangedToMp3 = await prepareUsb(usbPendingId, 'mp3', usbMp3);
+assert.equal(usbChangedToMp3.web_enabled, false);
+assert.equal(usbChangedToMp3.app_store_enabled, false);
+assert.equal(usbChangedToMp3.site_requests_enabled, false);
+assert.equal(usbChangedToMp3.app_requests_enabled, true);
+await db.exec('reset role');
+assert.deepEqual(await accountCounts(), accountsBeforePreparation);
+await loadMigration(usbProfileMigration);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(usbPendingId)).revision, usbChangedToMp3.revision);
+// The combined policy is bounded too; rejecting an oversized result rolls back
+// profile, app selection, revision and managed-package metadata together.
+await db.exec('reset role');
+await db.query(`update private.yd_device_policy p set apps=p.apps || (
+  select jsonb_object_agg('com.example.fill' || n, true) from generate_series(1,
+    99-(select count(*)::integer from jsonb_object_keys(p.apps))) as n
+  ) where p.device_id=$1`, [usbPendingId]);
+await act('authenticated', adminA);
+const beforeUsbLimit = await adminPolicy(usbPendingId);
+const overflowExtra = 'com.example.overflow';
+await assert.rejects(() => prepareUsb(usbPendingId, 'qin', usbMp3.concat(overflowExtra), usbBaseline.concat(overflowExtra)), /DEVICE_RULE_LIMIT/);
+assert.deepEqual(persistedPolicy(await adminPolicy(usbPendingId)), persistedPolicy(beforeUsbLimit));
+
+// Saving a USB profile and the Chrome pilot share the same policy row. A change
+// to MP3 must close an active Chrome even when made during USB preparation.
+await act('authenticated', adminA);
+const chromeUsbQin = await prepareUsb(id, 'qin', usbMp3);
+assert.equal(chromeUsbQin.web_enabled, true);
+await act('anon', '', true, recoveredPhone.app_token);
+const chromeUsbReady = await reportV3(recoveredPhone.token, chromeUsbQin.revision, true, 'ready');
+assert.equal(chromeUsbReady.managed_chrome.enabled, false);
+await act('authenticated', adminA);
+const chromeUsbEnabled = await setChrome(id, true);
+await act('anon', '', true, recoveredPhone.app_token);
+await reportV3(recoveredPhone.token, chromeUsbEnabled.revision, true, 'active');
+await act('authenticated', adminA);
+const chromeUsbMp3 = await prepareUsb(id, 'mp3', usbMp3);
+assert.equal(chromeUsbMp3.revision, chromeUsbEnabled.revision + 1);
+assert.equal(chromeUsbMp3.device_profile, 'mp3');
+assert.equal(chromeUsbMp3.web_enabled, false);
+assert.equal(chromeUsbMp3.managed_chrome.enabled, false);
+assert.equal(chromeUsbMp3.apps[chrome], false);
+await assert.rejects(() => setChrome(id, true), /WEB_SECTION_DISABLED/);
+await act('anon', '', true, recoveredPhone.app_token);
+await assert.rejects(() => reportV3(recoveredPhone.token, chromeUsbMp3.revision, true, 'active'), /INVALID_POLICY_REPORT/);
+const chromeUsbClosed = await reportV3(recoveredPhone.token, chromeUsbMp3.revision, true, 'ready');
+assert.equal(chromeUsbClosed.applied_revision, chromeUsbMp3.revision);
+await act('authenticated', adminA);
+const chromeUsbReopened = await setSections(id, true, false);
+assert.equal(chromeUsbReopened.managed_chrome.enabled, false);
+
+// Reproduce the live Android 6.0 compatibility bridge without restoring the
+// superseded account-list recovery UI or bypassing the current confirmation wrapper.
+await db.exec('reset role');
+const legacyBridgeMigration = '20261119155142_legacy_android_code_compatibility.sql';
+await loadMigration(legacyBridgeMigration);
+await loadMigration(legacyBridgeMigration);
+const activateLegacyBridge = (code, address = email, number = phone) => scalar(
+  'select public.yd_activate_app_code($1,$2,$3)', [code, address, number]
+);
+await act('authenticated', adminA);
+const legacyBridgeId = (await register(null, 'fixture-legacy-bridge')).device_id;
+await act('authenticated', owner);
+await scalar('select public.set_device_configured($1,true)', [legacyBridgeId]);
+await act('authenticated', adminA);
+const initialBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1,$2,$3)',
+  [legacyBridgeId, email, phone]);
+await act('anon');
+const initialBridgeSession = await redeem(initialBridgeCode.code);
+await act('authenticated', adminA);
+const compatibleBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1)', [legacyBridgeId]);
+await act('anon', '', true, initialBridgeSession.app_token);
+await assert.rejects(() => activateLegacyBridge(compatibleBridgeCode.code, 'different@example.invalid'), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => activateLegacyBridge(compatibleBridgeCode.code, email, '+33123456780'), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => activateLegacyBridge('not-a-code'), /INVALID_ACCOUNT_CODE/);
+assert.equal((await access(initialBridgeSession.app_token)).account.id, initialBridgeSession.account.id);
+const bridgedSession = await activateLegacyBridge(compatibleBridgeCode.code.toLowerCase(), ' ' + email.toUpperCase() + ' ', phone);
+assert.equal(bridgedSession.account.id, initialBridgeSession.account.id);
+assert.equal(bridgedSession.device_id, legacyBridgeId);
+assert.match(bridgedSession.app_token, /^[a-f0-9]{64}$/);
+assert.match(bridgedSession.token, /^[a-f0-9]{64}$/);
+await assert.rejects(() => activateLegacyBridge(compatibleBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => redeem(compatibleBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await assert.rejects(() => access(initialBridgeSession.app_token), /APP_ACCESS_DENIED/);
+await act('anon', '', true, bridgedSession.app_token);
+await phonePolicy(bridgedSession.token);
+await act('authenticated', adminA);
+const confirmedBridge = await scalar('select public.yd_admin_device_enrollment($1)', [legacyBridgeId]);
+assert.equal(confirmedBridge.redeemed_activation_id, compatibleBridgeCode.activation_id);
+// Expiry and suspension are still checked by the modern redemption path.
+const expiredBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1)', [legacyBridgeId]);
+await db.exec('reset role');
+await db.query("update private.yd_pending_app_activation set expires_at=now()-interval '1 second' where device_id=$1", [legacyBridgeId]);
+await act('anon');
+await assert.rejects(() => activateLegacyBridge(expiredBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await act('authenticated', adminA);
+const suspendedBridgeCode = await scalar('select public.yd_admin_issue_device_activation($1)', [legacyBridgeId]);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,false)', [adminA]);
+await act('anon');
+await assert.rejects(() => activateLegacyBridge(suspendedBridgeCode.code), /INVALID_ACCOUNT_CODE/);
+await act('authenticated', owner);
+await scalar('select public.set_platform_admin_access($1,true)', [adminA]);
+// The original pairing endpoint remains compatible with the old application.
+await act('authenticated', adminA);
+const oldBridgePairing = await scalar('select public.yd_create_pairing($1)', [legacyBridgeId]);
+await act('anon');
+const oldBridgeSession = await activateLegacyBridge(oldBridgePairing);
+assert.equal(oldBridgeSession.device_id, legacyBridgeId);
+assert.equal(oldBridgeSession.account.email, email);
+await assert.rejects(() => activateLegacyBridge(oldBridgePairing), /INVALID_ACCOUNT_CODE/);
+await act('anon', '', true, oldBridgeSession.app_token);
+await phonePolicy(oldBridgeSession.token);
+
 await db.close();
-console.log('Device rules: USB identity, account and shop isolation, activation, managed Chrome, and permanent and timed requests passed.');
+console.log('Device rules: USB preparation, account and shop isolation, activation and legacy compatibility, managed Chrome, and permanent and timed requests passed.');

@@ -5,6 +5,7 @@ export const CONFIG = {
   adminReceiver: '.MyDeviceAdminReceiver',
   // Fichier lu par l'app au démarrage (voir MainActivity.kt)
   configRemotePath: '/sdcard/Android/data/com.yidream.mdm/files/yidream_config.json',
+  profileReceiptRemotePath: '/sdcard/Android/data/com.yidream.mdm/files/yidream_config_applied.json',
   // Doit rester identique à UnlockManager.kt côté Android
   unlockSalt: 'yidream-unlock-v1',
 
