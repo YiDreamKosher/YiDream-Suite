@@ -886,5 +886,74 @@ await setSections(id, false, true);
 await assert.rejects(() => setRule(id, 'site', 'also-disabled.example', true), /WEB_SECTION_DISABLED/);
 await setSections(id, true, true);
 
+// Official Zemer updates use the existing shared catalogue without granting app
+// access or opening the hidden MP3 store. Android checks installed identity,
+// version, APK digest and signing continuity before submitting an update.
+await act('authenticated', adminA);
+const beforeZemerPolicy = await adminPolicy(id);
+const beforeZemerMp3Policy = await adminPolicy(secondaryId);
+const persistedPolicy = ({ server_time, ...policy }) => policy;
+assert.equal(beforeZemerPolicy.apps['com.jtech.zemer'], undefined);
+assert.equal(beforeZemerMp3Policy.app_store_enabled, false);
+await db.exec('reset role');
+const zemerMigration = '20261119150527_zemer_verified_update_catalog.sql';
+await loadMigration(zemerMigration);
+await loadMigration(zemerMigration);
+const officialZemer = (await db.query(
+  "select * from public.yd_catalog where package_name='com.jtech.zemer' and is_base"
+)).rows;
+assert.equal(officialZemer.length, 1);
+assert.equal(officialZemer[0].owner_id, owner);
+assert.equal(officialZemer[0].version_code, 41);
+assert.equal(officialZemer[0].version_name, '41');
+assert.equal(officialZemer[0].sha256, 'fdf0115f6ace608119c7dd57db62666d59ea8f8beb6465119848b9bd6d0a6edd');
+assert.equal(officialZemer[0].apk_url, 'https://github.com/ZemerTeam/zemer-app/releases/download/v41/app-release.apk');
+assert.equal(officialZemer[0].source_url, 'https://zemer.io/');
+assert.equal(officialZemer[0].requires_device_approval, true);
+await act('authenticated', adminA);
+assert.deepEqual(persistedPolicy(await adminPolicy(id)), persistedPolicy(beforeZemerPolicy));
+assert.deepEqual(persistedPolicy(await adminPolicy(secondaryId)), persistedPolicy(beforeZemerMp3Policy));
+// An administrator can read a shared publication but cannot alter it.
+assert.equal((await db.query(
+  "update public.yd_catalog set enabled=false where id=$1 returning id", [officialZemer[0].id]
+)).rows.length, 0);
+for (const phone of [recoveredPhone, firstPhone]) {
+  await act('anon', '', true, phone.app_token);
+  assert.equal(await hasCatalogue(phone.token, 'com.jtech.zemer'), true);
+}
+// Another shop receives exactly the same owner-verified release, not another
+// reseller's package with the same name.
+await act('authenticated', legacyCustomer);
+assert.equal(await hasCatalogue(legacyDevice.token, 'com.jtech.zemer'), true);
+await act('anon');
+await assert.rejects(() => hasCatalogue(recoveredPhone.token, 'com.jtech.zemer'), /APP_ACCESS_DENIED/);
+await assert.rejects(() => hasCatalogue('invalid', 'com.jtech.zemer'), /APP_ACCESS_DENIED/);
+// A device-specific deny remains authoritative. Merely publishing a base
+// release never grants a first install or removes an explicit app restriction.
+await act('authenticated', adminA);
+await setRule(secondaryId, 'app', 'com.jtech.zemer', false);
+assert.equal((await adminPolicy(secondaryId)).apps['com.jtech.zemer'], false);
+await db.exec('reset role');
+await loadMigration(zemerMigration);
+await act('authenticated', adminA);
+assert.equal((await adminPolicy(secondaryId)).apps['com.jtech.zemer'], false);
+await act('authenticated', owner);
+await db.query('update public.yd_catalog set enabled=false, version_code=42, version_name=$2 where id=$1',
+  [officialZemer[0].id, 'owner-published-newer-release']);
+await db.exec('reset role');
+await loadMigration(zemerMigration);
+const retainedZemer = (await db.query('select enabled,version_code,version_name from public.yd_catalog where id=$1',
+  [officialZemer[0].id])).rows[0];
+assert.deepEqual(retainedZemer, { enabled: false, version_code: 42, version_name: 'owner-published-newer-release' });
+await act('anon', '', true, firstPhone.app_token);
+assert.equal(await hasCatalogue(firstPhone.token, 'com.jtech.zemer'), false);
+await db.exec('reset role');
+await db.query('update public.yd_catalog set is_base=false where id=$1', [officialZemer[0].id]);
+await assert.rejects(() => loadMigration(zemerMigration), /ZEMER_CATALOG_CONFLICT/);
+await db.exec('rollback');
+await db.query('update public.yd_catalog set is_base=true,owner_id=$2 where id=$1', [officialZemer[0].id, adminB]);
+await assert.rejects(() => loadMigration(zemerMigration), /ZEMER_CATALOG_CONFLICT/);
+await db.exec('rollback');
+
 await db.close();
 console.log('Device rules: USB identity, account and shop isolation, activation, policy delivery, and permanent and timed requests passed.');
